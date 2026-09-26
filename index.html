@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MIDIMap</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="pano"></div>
+
+  <div id="hud">
+    <div id="hud-location">—</div>
+    <div class="row">
+      <span id="hud-mode"></span>
+      <span id="hud-speed"></span>
+      <span id="hud-midi"></span>
+    </div>
+    <div id="hud-status"></div>
+  </div>
+
+  <div id="learn-banner" hidden></div>
+  <div id="toast"></div>
+  <button id="panel-toggle" title="Mappings (` key)">⚙</button>
+
+  <aside id="panel" hidden>
+    <header>
+      <h1>MIDIMap</h1>
+      <button id="panel-close" title="Close (Esc)">×</button>
+    </header>
+
+    <section>
+      <h2>Google Maps key</h2>
+      <form id="api-key-form">
+        <input id="api-key" type="password" placeholder="Google Maps JavaScript API key" autocomplete="off">
+        <button type="submit">Save &amp; reload</button>
+      </form>
+      <p id="api-key-message" class="note"></p>
+      <p class="note">Stored only in this browser. You can also open the page with <code>?key=…</code>.</p>
+    </section>
+
+    <section>
+      <h2>MIDI</h2>
+      <p><span id="midi-status">—</span> <button id="midi-start">Enable MIDI</button></p>
+      <p class="note">Last input: <span id="activity">—</span></p>
+    </section>
+
+    <section>
+      <h2>Mappings</h2>
+      <p class="note">Click <b>Learn</b>, then press a key or move a MIDI control. Knob/fader actions accept CC, pitch bend or aftertouch only.</p>
+      <table>
+        <tbody id="mappings"></tbody>
+      </table>
+      <p class="buttons">
+        <button id="export">Export setup</button>
+        <label class="button">Import setup<input id="import" type="file" accept="application/json" hidden></label>
+        <button id="reset-bindings">Reset mappings</button>
+      </p>
+    </section>
+
+    <section>
+      <h2>Locations</h2>
+      <p class="note">Shift + number stores the current view in that slot.</p>
+      <ol id="locations"></ol>
+      <p class="buttons"><button id="reset-locations">Restore presets</button></p>
+    </section>
+
+    <section>
+      <h2>Reserved keys</h2>
+      <p class="note"><kbd>`</kbd> this panel · <kbd>H</kbd> hide HUD · <kbd>F</kbd> fullscreen · <kbd>Esc</kbd> cancel learn / close</p>
+    </section>
+  </aside>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
