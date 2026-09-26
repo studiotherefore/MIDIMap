@@ -8,6 +8,11 @@ module in Drift.
 
 ## Run it
 
+**Online (GitHub Pages):** open <https://studiotherefore.github.io/MIDIMap/> in Chrome
+or Edge. Restrict the API key's HTTP referrer to `https://studiotherefore.github.io/*`.
+
+**Locally:**
+
 1. Get a **Google Maps JavaScript API** key (Google Cloud Console → APIs & Services →
    enable *Maps JavaScript API* → Credentials → Create API key). Restrict it to
    HTTP referrer `http://localhost:*` so it can't be used elsewhere.
