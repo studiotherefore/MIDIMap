@@ -135,10 +135,57 @@ const MAPS_ERRORS = {
   MissingKeyMapError: 'No key reached Google. Paste the key again and save.',
 };
 
+// ---- startup checklist -------------------------------------------------------
+// Every step of starting up is shown on screen, so a failure is never silent.
+
+const STEPS = [
+  ['page', 'Page scripts loaded'],
+  ['key', 'API key found'],
+  ['maps', 'Google Maps library loaded'],
+  ['sv', 'Street View viewer created'],
+  ['pano', 'Imagery loaded — key accepted'],
+];
+const stepState = {};
+let checklistFailed = false;
+
+function renderChecklist() {
+  const ul = document.getElementById('checklist-items');
+  ul.replaceChildren(...STEPS.map(([id, text]) => {
+    const s = stepState[id] || { state: 'wait' };
+    const li = document.createElement('li');
+    li.className = s.state;
+    li.innerHTML = '<span class="mark"></span><span></span>';
+    li.lastChild.textContent = s.detail ? `${text} — ${s.detail}` : text;
+    return li;
+  }));
+}
+
+function step(id, state, detail) {
+  if (checklistFailed && state !== 'fail') return;
+  stepState[id] = { state, detail };
+  renderChecklist();
+}
+
+function fail(id, help) {
+  step(id, 'fail');
+  checklistFailed = true;
+  engine.status = help.split('. ')[0];
+  engine.onChange(engine);
+  document.getElementById('checklist').classList.remove('done');
+  document.getElementById('checklist-help').textContent = help;
+  document.getElementById('checklist-buttons').hidden = false;
+}
+
+function checklistDone() {
+  setTimeout(() => document.getElementById('checklist').classList.add('done'), 1500);
+}
+
+document.getElementById('checklist-key').addEventListener('click', () => ui.showKeyPrompt(''));
+document.getElementById('checklist-retry').addEventListener('click', () => location.reload());
+
 function reportMapsError(code) {
-  const text = MAPS_ERRORS[code] || `Google Maps error: ${code}. See developers.google.com/maps/documentation/javascript/error-messages`;
-  engine.status = `Google Maps: ${code}`;
-  ui.showKeyPrompt(text);
+  const text = MAPS_ERRORS[code] || `Google Maps error ${code}. See developers.google.com/maps/documentation/javascript/error-messages`;
+  fail(stepState.sv?.state === 'ok' ? 'pano' : 'maps', `Google refused the key (${code}). ${text}`);
 }
 
 const consoleError = console.error.bind(console);
@@ -148,31 +195,73 @@ console.error = (...args) => {
   if (m) reportMapsError(m[1]);
 };
 
+// Any unexpected script error also lands on screen.
+let booted = false;
+window.addEventListener('error', (e) => {
+  if (!booted && !checklistFailed && e.message !== 'Script error.') fail(currentStep(), `Script error: ${e.message}`);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  if (!booted && !checklistFailed) fail(currentStep(), `Script error: ${e.reason?.message || e.reason}`);
+});
+
+function currentStep() {
+  return STEPS.find(([id]) => stepState[id]?.state !== 'ok')?.[0] || 'pano';
+}
+
+function withTimeout(promise, ms, message) {
+  return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms))]);
+}
+
 async function boot() {
   ui.renderHud();
   router.startMidi();
+  step('page', 'ok');
 
   const key = readKey();
   if (!key) {
-    engine.status = 'No Google Maps API key';
+    fail('key', 'No API key saved in this browser yet. Click "Change API key" and paste your Google Maps key.');
     ui.showKeyPrompt('Paste a Google Maps JavaScript API key to begin.');
     return;
   }
-  try {
-    await loadMaps(key);
-    // gm_authFailure can fire after load; the specific reason arrives via console.error above.
-    window.gm_authFailure = () => {
-      if (!engine.status.startsWith('Google Maps:')) {
-        engine.status = 'Google rejected the API key';
-        ui.showKeyPrompt('Google rejected this key. Check that the Maps JavaScript API is enabled, billing is on, and the key allows this address.');
+  step('key', 'ok', `ending …${key.slice(-4)}`);
+
+  step('maps', 'busy');
+  // Google calls gm_authFailure when it rejects the key; the specific reason arrives via console.error.
+  window.gm_authFailure = () => {
+    setTimeout(() => {
+      if (!checklistFailed) {
+        fail(currentStep(), 'Google refused the key. Check the Maps JavaScript API is enabled for the key\'s project, and that the key\'s website restriction includes ' +
+          `${location.origin}/*`);
       }
-    };
-    await engine.init();
-    engine.goto(locations['1']);
+    }, 300);
+  };
+  try {
+    await withTimeout(loadMaps(key), 15000,
+      'No response from Google Maps after 15 seconds. An ad blocker or privacy extension may be blocking maps.googleapis.com. Try disabling it for this page.');
+    step('maps', 'ok');
   } catch (err) {
-    engine.status = err.message;
-    ui.showKeyPrompt(err.message);
+    return fail('maps', err.message);
+  }
+
+  try {
+    await engine.init();
+    step('sv', 'ok');
+  } catch (err) {
+    return fail('sv', `Could not create the Street View viewer: ${err.message}`);
+  }
+
+  step('pano', 'busy', locations['1']?.name);
+  const result = await engine.goto(locations['1']);
+  if (checklistFailed) return;
+  if (result === 'OK') {
+    step('pano', 'ok', locations['1']?.name);
+    booted = true;
+    checklistDone();
+  } else {
+    fail('pano', `Street View did not return imagery (${result}). If this says REQUEST_DENIED, the key is being refused: check its API restrictions include the Maps JavaScript API.`);
   }
 }
 
+document.getElementById('checklist-help').textContent = '';
+renderChecklist();
 boot();

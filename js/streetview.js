@@ -80,8 +80,9 @@ export class StreetViewEngine {
 
   // ---- actions -------------------------------------------------------------
 
+  // Resolves to 'OK' once imagery has arrived, or to an error description.
   async goto(loc) {
-    if (!this.ready || !loc) return;
+    if (!this.ready || !loc) return 'Street View is not ready';
     this.locationName = loc.name || 'Unnamed';
     this._setStatus(`Going to ${this.locationName}…`);
     if (loc.mode) this.mode = loc.mode;
@@ -101,13 +102,40 @@ export class StreetViewEngine {
         });
         panoId = data.location.pano;
       }
+      const status = await this._showPano(panoId);
+      this._setStatus(status === 'OK' ? '' : `Street View did not load (${status})`);
+      return status;
+    } catch (err) {
+      console.warn(err);
+      const reason = err?.code || err?.message || String(err);
+      this._setStatus(`No Street View found near ${this.locationName} (${reason})`);
+      return reason;
+    }
+  }
+
+  _showPano(panoId) {
+    if (this.pano.getPano() === panoId && this.pano.getStatus() === 'OK') {
+      this._applyPov(true);
+      return Promise.resolve('OK');
+    }
+    return new Promise((resolve) => {
+      let finished = false;
+      const done = (s) => {
+        if (finished) return;
+        finished = true;
+        onStatus.remove();
+        onPano.remove();
+        clearTimeout(timer);
+        resolve(s);
+      };
+      const onStatus = this.pano.addListener('status_changed', () => done(this.pano.getStatus()));
+      // status_changed may not fire if the status was already OK; give it a moment, then read it.
+      const onPano = this.pano.addListener('pano_changed', () =>
+        setTimeout(() => done(this.pano.getStatus() || 'unknown status'), 400));
+      const timer = setTimeout(() => done('no response after 12 seconds'), 12000);
       this.pano.setPano(panoId);
       this._applyPov(true);
-      this._setStatus('');
-    } catch (err) {
-      this._setStatus(`No Street View near ${this.locationName}`);
-      console.warn(err);
-    }
+    });
   }
 
   changeSpeed(delta) {
