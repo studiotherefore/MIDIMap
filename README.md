@@ -71,6 +71,11 @@ The engine only knows about *state* (speed, pitch target, mode). The input
 layer only knows about *actions*. So Drift, OSC, or a sequencer can drive the
 engine directly without going through keys or MIDI.
 
+## Tests
+
+`npm install` once, then `npm test`. This runs a headless-browser smoke test
+with a simulated Google Maps and a simulated MIDI device (`tests/`).
+
 ## Notes and limitations
 
 - **Street View is not continuous.** It's a graph of spherical photos about
