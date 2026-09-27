@@ -19,9 +19,13 @@ html, body {
   overflow: hidden;
 }
 
-#pano {
+#stage {
   position: fixed;
   inset: 0;
+}
+#pano {
+  width: 100%;
+  height: 100%;
 }
 
 #hud {
@@ -161,6 +165,10 @@ button:hover, .button:hover { border-color: var(--fg); }
   padding: 4px 8px;
 }
 #api-key-message { color: var(--accent); }
+#api-key-state { margin: 8px 0 0; }
+#api-key-state.ok { color: #6fcf7f; }
+#api-key-state.fail { color: var(--accent); }
+#api-key-state button { margin-left: 6px; }
 
 table { width: 100%; border-collapse: collapse; }
 td { padding: 5px 4px; border-top: 1px solid var(--line); vertical-align: top; }

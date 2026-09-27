@@ -65,6 +65,22 @@ export class UI {
     $('#api-key').focus();
   }
 
+  // state: 'none' | 'checking' | 'ok' | 'fail'
+  setKeyState(key, state, onForget) {
+    const box = $('#api-key-state');
+    box.replaceChildren();
+    if (!key) {
+      box.textContent = 'No key saved in this browser.';
+      $('#api-key').placeholder = 'Google Maps JavaScript API key';
+      return;
+    }
+    const label = { checking: 'checking with Google…', ok: '✓ accepted by Google', fail: '✗ not working — see message below' }[state] || '';
+    box.className = state;
+    box.append(`Saved key ending …${key.slice(-4)} — ${label} `,
+      el('button', { onclick: onForget }, 'Forget key'));
+    $('#api-key').placeholder = 'Paste a new key to replace the saved one';
+  }
+
   toast(msg) {
     const t = $('#toast');
     t.textContent = msg;

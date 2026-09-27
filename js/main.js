@@ -174,13 +174,26 @@ function fail(id, help) {
   document.getElementById('checklist').classList.remove('done');
   document.getElementById('checklist-help').textContent = help;
   document.getElementById('checklist-buttons').hidden = false;
+  document.getElementById('api-key-message').textContent = help;
+  if (activeKey) showKeyState('fail');
 }
 
 function checklistDone() {
-  setTimeout(() => document.getElementById('checklist').classList.add('done'), 1500);
+  setTimeout(() => document.getElementById('checklist').classList.add('done'), 4000);
 }
 
-document.getElementById('checklist-key').addEventListener('click', () => ui.showKeyPrompt(''));
+let activeKey = '';
+function showKeyState(state) {
+  ui.setKeyState(activeKey, state, () => {
+    storeKey('');
+    location.href = location.pathname; // also drops any ?key= from the address
+  });
+}
+
+document.getElementById('checklist-key').addEventListener('click', () => {
+  const msg = document.getElementById('api-key-message').textContent;
+  ui.showKeyPrompt(msg);
+});
 document.getElementById('checklist-retry').addEventListener('click', () => location.reload());
 
 function reportMapsError(code) {
@@ -219,11 +232,14 @@ async function boot() {
 
   const key = readKey();
   if (!key) {
+    showKeyState('none');
     fail('key', 'No API key saved in this browser yet. Click "Change API key" and paste your Google Maps key.');
     ui.showKeyPrompt('Paste a Google Maps JavaScript API key to begin.');
     return;
   }
   step('key', 'ok', `ending …${key.slice(-4)}`);
+  activeKey = key;
+  showKeyState('checking');
 
   step('maps', 'busy');
   // Google calls gm_authFailure when it rejects the key; the specific reason arrives via console.error.
@@ -255,6 +271,7 @@ async function boot() {
   if (checklistFailed) return;
   if (result === 'OK') {
     step('pano', 'ok', locations['1']?.name);
+    showKeyState('ok');
     booted = true;
     checklistDone();
   } else {

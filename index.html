@@ -7,7 +7,8 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <div id="pano"></div>
+  <!-- Google overwrites the pano element's own positioning, so the full-screen frame is a wrapper. -->
+  <div id="stage"><div id="pano"></div></div>
 
   <div id="hud">
     <div id="hud-location">—</div>
@@ -45,6 +46,7 @@
         <input id="api-key" type="password" placeholder="Google Maps JavaScript API key" autocomplete="off">
         <button type="submit">Save &amp; reload</button>
       </form>
+      <p id="api-key-state"></p>
       <p id="api-key-message" class="note"></p>
       <p class="note">Stored only in this browser. You can also open the page with <code>?key=…</code>.</p>
     </section>
