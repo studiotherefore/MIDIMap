@@ -30,12 +30,11 @@ Cloud settings), give click-by-click steps.
   to index.html, css/ and js/ (9 files). Note: wrangler's "Read N files" count
   is taken *before* `.assetsignore` is applied; check with
   `WRANGLER_LOG=debug npx wrangler deploy --dry-run` and "Ignoring asset" lines.
-- The old GitHub Pages site (https://studiotherefore.github.io/MIDIMap/) is due
-  to be retired. **GitHub Pages currently
-  publishes the branch `claude/gallant-knuth-hvt5w2`, not `main`**: `main` holds
-  only an empty initial commit, and PR #1 (that branch → `main`) is still open.
-  The repo's default branch is also that claude branch. The PR description says
-  to switch Pages to `main` after merging.
+- **GitHub Pages is retired** (disabled by the author on 2026-09-28); the old
+  github.io address is gone. GitHub is now only the code backup. `main` still
+  holds only an empty initial commit; PR #1 (`claude/gallant-knuth-hvt5w2` →
+  `main`) is still open and the repo's default branch is that claude branch.
+  Work so far was pushed to both `feature/keyboard-controller` and that branch.
 
 ## Session 2 (2026-09-27, on the author's Mac)
 
@@ -49,7 +48,8 @@ Cloud settings), give click-by-click steps.
   `DIN THRU`, `MCU/HUI`, `ALV`; only `Minilab3 MIDI` sent anything). Recorded out of the box,
   all channel 1: keys = notes; knob 1 = CC74 (absolute, so it's already Speed); fader 1 = CC82;
   mod strip = CC1 (already Tilt); pitch strip = pitch bend, springs back to centre;
-  **pads = bank select CC0 + CC32, then a program change** (pad 1 = program 0);
+  **pads = bank select CC0 + CC32, then a program change** (pads 1–8 = programs 0–7,
+  confirmed on the hardware; by default they go to places 1–8);
   **main encoder = CC114, relative** (64 ± steps). Both are now supported (below).
   A small CoreMIDI listener (Swift) was used to record this; it lived in the session scratchpad.
 
@@ -146,6 +146,8 @@ to drive the engine directly.
 
 ## Git
 
-Work on a feature branch and open a pull request. Once PR #1 is merged and
-Pages is switched to `main`, a merge into `main` is a deploy. Until then, Pages
-publishes `claude/gallant-knuth-hvt5w2` (see Status).
+Work on a feature branch. Deploying is separate from git: `npm run deploy`
+publishes the working folder to Cloudflare, so run the tests and commit first.
+Pushing to GitHub is only the backup; push when the author asks. Git on the
+author's Mac has no stored GitHub login; push with
+`git -c credential.helper= -c credential.helper='!gh auth git-credential' push …`.
