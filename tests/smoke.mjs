@@ -66,6 +66,7 @@ const learn = (page, rowText) => page.locator('#mappings tr', { hasText: rowText
   const page = await open(`${base}/?key=TESTabcd`);
   const steps = await page.$$eval('#checklist-items li', (l) => l.map((x) => x.className));
   check('startup checklist all green', steps.length === 5 && steps.every((s) => s === 'ok'), steps.join(','));
+  check('startup: no "Change API key / Try again" buttons after success', !(await page.isVisible('#checklist-buttons')));
   const box = await page.evaluate(() => { const r = document.getElementById('pano').getBoundingClientRect(); return [r.width, r.height]; });
   check('viewer fills the screen', box[0] === 1000 && box[1] === 600, box.join('x'));
   check('arrives at slot 1', (await text(page, '#hud-location')) === 'Times Square, New York');
@@ -277,6 +278,7 @@ const learn = (page, rowText) => page.locator('#mappings tr', { hasText: rowText
   const steps = await page.$$eval('#checklist-items li', (l) => l.map((x) => x.className));
   check('no key: checklist flags the key step', steps[1] === 'fail', steps.join(','));
   check('no key: settings panel opens', await page.isVisible('#panel'));
+  check('no key: "Change API key / Try again" buttons shown', await page.isVisible('#checklist-buttons'));
   await page.close();
 }
 

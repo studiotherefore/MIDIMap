@@ -152,6 +152,8 @@ button:hover, .button:hover { border-color: var(--fg); }
 #panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--dim); margin: 20px 0 8px; }
 .note { color: var(--dim); margin: 6px 0; }
 .buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+/* A display rule like the one above would otherwise override the hidden attribute. */
+[hidden] { display: none !important; }
 
 #api-key-form { display: flex; gap: 8px; }
 #api-key {
