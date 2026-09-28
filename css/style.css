@@ -188,6 +188,10 @@ tr.learning td { background: rgba(255, 90, 54, 0.15); }
 }
 .chip .x { border: 0; padding: 0 4px; color: var(--dim); }
 .chip .x:hover { color: var(--accent); }
+.chip.endless { border-color: var(--accent); }
+
+table.layout td:last-child { text-align: left; width: auto; color: var(--dim); }
+table.layout td:first-child { white-space: nowrap; width: 1%; padding-right: 12px; }
 
 #locations { padding-left: 0; list-style: none; margin: 0; }
 #locations li { padding: 3px 0; }

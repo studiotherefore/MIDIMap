@@ -1,6 +1,7 @@
 // HUD overlay and the mapping / settings panel.
 
 import { describeSource, label } from './input.js';
+import { KNOBS, PADS } from './virtual-midi.js';
 import { SLOTS } from './locations.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -17,9 +18,10 @@ function el(tag, attrs = {}, ...children) {
 }
 
 export class UI {
-  constructor({ engine, router, getLocations, onApiKey, onResetLocations }) {
+  constructor({ engine, router, virtual, onToggleVirtual, getLocations, onApiKey, onResetLocations }) {
     this.engine = engine;
     this.router = router;
+    this.virtual = virtual;
     this.getLocations = getLocations;
     this.onApiKey = onApiKey;
     this.onResetLocations = onResetLocations;
@@ -32,6 +34,8 @@ export class UI {
       this.onApiKey($('#api-key').value.trim());
     });
     $('#midi-start').addEventListener('click', () => router.startMidi());
+    $('#virtual-toggle').addEventListener('click', () => onToggleVirtual());
+    this._renderVirtualLayout();
     $('#export').addEventListener('click', () => this._export());
     $('#import').addEventListener('change', (e) => this._import(e.target.files[0]));
     $('#reset-bindings').addEventListener('click', () => {
@@ -66,7 +70,8 @@ export class UI {
   }
 
   // state: 'none' | 'checking' | 'ok' | 'fail'
-  setKeyState(key, state, onForget) {
+  // source: 'browser' | 'url' | 'file'
+  setKeyState(key, state, onForget, source = 'browser') {
     const box = $('#api-key-state');
     box.replaceChildren();
     if (!key) {
@@ -76,6 +81,12 @@ export class UI {
     }
     const label = { checking: 'checking with Google…', ok: '✓ accepted by Google', fail: '✗ not working — see message below' }[state] || '';
     box.className = state;
+    if (source === 'file') {
+      // A key typed here would be ignored while the file exists, so don't offer to replace it.
+      box.textContent = `Key ending …${key.slice(-4)} from config.local.json in the project folder — ${label}`;
+      $('#api-key-form').hidden = true;
+      return;
+    }
     box.append(`Saved key ending …${key.slice(-4)} — ${label} `,
       el('button', { onclick: onForget }, 'Forget key'));
     $('#api-key').placeholder = 'Paste a new key to replace the saved one';
@@ -89,9 +100,9 @@ export class UI {
     this._toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
   }
 
-  activity(sourceId, actionId, value) {
+  activity(sourceId, actionId, value, virtual) {
     const text = `${describeSource(sourceId)}${value != null ? ` = ${Math.round(value * 127)}` : ''}` +
-      (actionId ? ` → ${actionId}` : ' (unmapped)');
+      (actionId ? ` → ${actionId}` : ' (unmapped)') + (virtual ? '  [keyboard]' : '');
     $('#activity').textContent = text;
   }
 
@@ -102,8 +113,10 @@ export class UI {
     $('#hud-mode').textContent = e.mode.toUpperCase() + (e.paused ? ' · PAUSED' : '');
     $('#hud-speed').textContent = `speed ${speed}`;
     $('#hud-status').textContent = e.status || '';
-    const midi = this.router.midiStatus === 'connected' ? `MIDI: ${this.router.midiInputs.join(', ')}` : '';
-    $('#hud-midi').textContent = midi;
+    const sources = [];
+    if (this.router.midiStatus === 'connected') sources.push(this.router.midiInputs.join(', '));
+    if (this.virtual.active) sources.push('keyboard controller');
+    $('#hud-midi').textContent = sources.length ? `input: ${sources.join(' + ')}` : 'input: keys only';
     $('#learn-banner').hidden = !this.router.learning;
     if (this.router.learning) {
       const a = this.router.actions.get(this.router.learning);
@@ -118,6 +131,8 @@ export class UI {
 
     $('#midi-status').textContent = r.midiStatus === 'connected' ? `Connected: ${r.midiInputs.join(', ')}` : r.midiStatus;
     $('#midi-start').hidden = r.midiStatus === 'connected';
+    $('#virtual-status').textContent = this.virtual.active ? 'On' : 'Off';
+    $('#virtual-toggle').textContent = this.virtual.active ? 'Turn off (P)' : 'Turn on (P)';
 
     const tbody = $('#mappings');
     tbody.replaceChildren();
@@ -127,9 +142,16 @@ export class UI {
         group = action.group;
         tbody.append(el('tr', { class: 'group' }, el('th', { colspan: '3' }, group)));
       }
-      const chips = r.sourcesFor(action.id).map((s) =>
-        el('span', { class: 'chip' }, describeSource(s),
-          el('button', { class: 'x', title: 'Remove', onclick: () => r.unbind(s) }, '×')));
+      const chips = r.sourcesFor(action.id).map((s) => {
+        const endless = r.relative.has(s);
+        // Knob actions driven by a CC can be read as a position or as an endless knob.
+        const knobType = action.type === 'absolute' && s.startsWith('midi:cc:')
+          ? el('button', { class: 'x', title: endless ? 'Endless knob. Click if it is an ordinary knob.' : 'Ordinary knob. Click if it is an endless knob.',
+            onclick: () => r.toggleRelative(s) }, endless ? '∞' : '⇥')
+          : null;
+        return el('span', { class: endless ? 'chip endless' : 'chip' }, describeSource(s), knobType,
+          el('button', { class: 'x', title: 'Remove', onclick: () => r.unbind(s) }, '×'));
+      });
       const learning = r.learning === action.id;
       tbody.append(el('tr', { class: learning ? 'learning' : '' },
         el('td', {}, label(action), el('span', { class: 'type' }, action.type)),
@@ -144,8 +166,20 @@ export class UI {
       el('li', {}, el('b', {}, s), ` ${locs[s]?.name ?? '(empty)'}`, locs[s]?.pano ? el('em', {}, ' saved view') : null)));
   }
 
+  // Cheat sheet for the keyboard stand-in, built from its layout so the two can't disagree.
+  _renderVirtualLayout() {
+    const key = (code) => el('kbd', {}, code.replace(/^Key/, ''));
+    const rows = KNOBS.map((k) => el('tr', {},
+      el('td', {}, el('kbd', {}, k.hint)),
+      el('td', {}, `knob: ${describeSource(`midi:cc:1:${k.cc}`)}${k.cc === 1 ? ', mod wheel' : ''}`)));
+    rows.push(el('tr', {},
+      el('td', {}, ...PADS.flatMap((p) => [key(p.key), ' '])),
+      el('td', {}, `pads: notes ${PADS[0].note}–${PADS[PADS.length - 1].note} (ch 1)`)));
+    $('#virtual-layout').replaceChildren(...rows);
+  }
+
   _export() {
-    const blob = new Blob([JSON.stringify({ bindings: this.router.bindings, locations: this.getLocations() }, null, 2)],
+    const blob = new Blob([JSON.stringify({ bindings: this.router.bindings, relative: [...this.router.relative], locations: this.getLocations() }, null, 2)],
       { type: 'application/json' });
     const a = el('a', { href: URL.createObjectURL(blob), download: 'midimap-setup.json' });
     a.click();
@@ -156,7 +190,7 @@ export class UI {
     if (!file) return;
     try {
       const data = JSON.parse(await file.text());
-      if (data.bindings) this.router.replaceBindings(data.bindings);
+      if (data.bindings) this.router.replaceBindings(data.bindings, data.relative);
       if (data.locations) this.onResetLocations(data.locations);
       this.toast('Setup imported');
     } catch (err) {

@@ -4,7 +4,7 @@
   "description": "MIDI-driven Google Street View prototype",
   "type": "module",
   "scripts": {
-    "start": "python3 -m http.server 8000",
+    "start": "python3 -m http.server 8000 --bind 127.0.0.1",
     "test": "node tests/smoke.mjs"
   },
   "devDependencies": {

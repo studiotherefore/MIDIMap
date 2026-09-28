@@ -48,7 +48,7 @@
       </form>
       <p id="api-key-state"></p>
       <p id="api-key-message" class="note"></p>
-      <p class="note">Stored only in this browser. You can also open the page with <code>?key=…</code>.</p>
+      <p class="note">Stored only in this browser. You can also open the page with <code>?key=…</code>, or, when running locally, put it in <code>config.local.json</code> next to <code>index.html</code>.</p>
     </section>
 
     <section>
@@ -58,8 +58,15 @@
     </section>
 
     <section>
+      <h2>Keyboard controller</h2>
+      <p><span id="virtual-status">—</span> <button id="virtual-toggle">Turn on (P)</button></p>
+      <p class="note">A pretend MIDI controller on the keyboard. It turns on by itself when no controller is connected and off when one is plugged in. Hold a knob key to turn it; add Shift for fine moves.</p>
+      <table class="layout"><tbody id="virtual-layout"></tbody></table>
+    </section>
+
+    <section>
       <h2>Mappings</h2>
-      <p class="note">Click <b>Learn</b>, then press a key or move a MIDI control. Knob/fader actions accept CC, pitch bend or aftertouch only.</p>
+      <p class="note">Click <b>Learn</b>, then press a key or move a MIDI control. Knob/fader actions accept CC, pitch bend or aftertouch only. An endless knob (one that keeps turning, like the MiniLab's main knob) is recognised while learning and marked ∞; click ∞ / ⇥ on a mapping to switch it by hand.</p>
       <table>
         <tbody id="mappings"></tbody>
       </table>
@@ -79,7 +86,7 @@
 
     <section>
       <h2>Reserved keys</h2>
-      <p class="note"><kbd>`</kbd> this panel · <kbd>H</kbd> hide HUD · <kbd>F</kbd> fullscreen · <kbd>Esc</kbd> cancel learn / close</p>
+      <p class="note"><kbd>`</kbd> this panel · <kbd>H</kbd> hide HUD · <kbd>F</kbd> fullscreen · <kbd>P</kbd> keyboard controller · <kbd>Esc</kbd> cancel learn / close</p>
     </section>
   </aside>
 

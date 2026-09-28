@@ -1,0 +1,4 @@
+{
+  "_note": "Copy this file to config.local.json (never committed) and put your Google Maps JavaScript API key below.",
+  "mapsApiKey": ""
+}

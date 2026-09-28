@@ -1,10 +1,13 @@
 import { StreetViewEngine } from './streetview.js';
 import { buildActions } from './actions.js';
 import { InputRouter, RESERVED_KEYS } from './input.js';
+import { VirtualController, TOGGLE_KEY } from './virtual-midi.js';
 import { UI } from './ui.js';
 import { loadLocations, saveLocationOverride, resetLocations, SLOTS } from './locations.js';
 
 const KEY_STORAGE = 'midimap.apiKey';
+// Optional, never committed (*.local.json is git-ignored): {"mapsApiKey": "…"}
+const KEY_FILE = 'config.local.json';
 
 let locations = loadLocations();
 const getLocations = () => locations;
@@ -15,11 +18,40 @@ const engine = new StreetViewEngine(document.getElementById('pano'), {
 const router = new InputRouter(buildActions(engine, getLocations), {
   onChange: () => ui?.renderPanel(),
   onMessage: (m) => ui.toast(m),
-  onActivity: (s, a, v) => ui.activity(s, a, v),
+  onActivity: (s, a, v, virtual) => ui.activity(s, a, v, virtual),
+  onDevices: (names) => onDevices(names),
 });
+
+// ---- keyboard stand-in controller -------------------------------------------
+// On by itself when no hardware controller is connected, off when one is.
+// P flips it by hand; the next plug or unplug hands control back to the automatic rule.
+
+const virtual = new VirtualController((data) => router.handleMidi(data, { virtual: true }));
+virtual.setActive(true); // until MIDI reports a device
+let hardware = null;     // null until the first device report
+
+function onDevices(names) {
+  const connected = names.length > 0;
+  if (connected === hardware) return;
+  const first = hardware === null;
+  hardware = connected;
+  virtual.setActive(!connected);
+  if (connected) ui.toast(`${names.join(', ')} connected: keyboard controller off (P turns it back on)`);
+  else if (!first) ui.toast('Controller disconnected: keyboard controller on');
+  ui.renderPanel();
+}
+
+function toggleVirtual() {
+  virtual.setActive(!virtual.active);
+  ui.toast(`Keyboard controller ${virtual.active ? 'on' : 'off'}`);
+  ui.renderPanel();
+}
+
 const ui = new UI({
   engine,
   router,
+  virtual,
+  onToggleVirtual: toggleVirtual,
   getLocations,
   onApiKey: (key) => {
     storeKey(key);
@@ -52,10 +84,11 @@ window.addEventListener('keydown', (e) => {
     if (e.code === 'Backquote') ui.togglePanel();
     if (e.code === 'KeyH') ui.toggleHud();
     if (e.code === 'KeyF') toggleFullscreen();
+    if (e.code === TOGGLE_KEY) toggleVirtual();
     return;
   }
   if (router.learning && RESERVED_KEYS.has(e.code)) {
-    ui.toast('That key is reserved (` panel, H HUD, F fullscreen, Esc cancel).');
+    ui.toast('That key is reserved (` panel, H HUD, F fullscreen, P keyboard controller, Esc cancel).');
     return;
   }
 
@@ -72,16 +105,21 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
+  if (virtual.handleKey(e, true)) return;
   router.handleKey(e, true);
 });
 
 window.addEventListener('keyup', (e) => {
   if (isTyping(e)) return;
+  if (virtual.handleKey(e, false)) return;
   router.handleKey(e, false);
 });
 
 // Avoid stuck "held" keys when the window loses focus mid-gesture.
-window.addEventListener('blur', () => router.releaseAll());
+window.addEventListener('blur', () => {
+  virtual.releaseAll();
+  router.releaseAll();
+});
 
 function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen();
@@ -90,13 +128,22 @@ function toggleFullscreen() {
 
 // ---- Google Maps -------------------------------------------------------------
 
-function readKey() {
+// Where the key comes from, in order: ?key= in the address, the local config
+// file next to the page (local setups), then this browser's saved key.
+async function readKey() {
   const fromUrl = new URLSearchParams(location.search).get('key');
-  if (fromUrl) return fromUrl;
+  if (fromUrl) return { key: fromUrl, source: 'url' };
   try {
-    return localStorage.getItem(KEY_STORAGE) || '';
+    const res = await fetch(KEY_FILE, { cache: 'no-store' });
+    const key = res.ok ? (await res.json()).mapsApiKey?.trim() : '';
+    if (key) return { key, source: 'file' };
   } catch {
-    return '';
+    /* no config file (e.g. on GitHub Pages) */
+  }
+  try {
+    return { key: localStorage.getItem(KEY_STORAGE) || '', source: 'browser' };
+  } catch {
+    return { key: '', source: 'browser' };
   }
 }
 
@@ -183,11 +230,12 @@ function checklistDone() {
 }
 
 let activeKey = '';
+let keySource = 'browser';
 function showKeyState(state) {
   ui.setKeyState(activeKey, state, () => {
     storeKey('');
     location.href = location.pathname; // also drops any ?key= from the address
-  });
+  }, keySource);
 }
 
 document.getElementById('checklist-key').addEventListener('click', () => {
@@ -230,15 +278,16 @@ async function boot() {
   router.startMidi();
   step('page', 'ok');
 
-  const key = readKey();
+  const { key, source } = await readKey();
   if (!key) {
     showKeyState('none');
     fail('key', 'No API key saved in this browser yet. Click "Change API key" and paste your Google Maps key.');
     ui.showKeyPrompt('Paste a Google Maps JavaScript API key to begin.');
     return;
   }
-  step('key', 'ok', `ending …${key.slice(-4)}`);
+  step('key', 'ok', `ending …${key.slice(-4)}${source === 'file' ? ` (from ${KEY_FILE})` : ''}`);
   activeKey = key;
+  keySource = source;
   showKeyState('checking');
 
   step('maps', 'busy');

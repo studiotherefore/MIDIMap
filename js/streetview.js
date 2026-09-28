@@ -32,6 +32,7 @@ export class StreetViewEngine {
     this.pitch = 0;
     this.targetPitch = 0;
     this.alignHeading = null;   // travel mode: road direction to settle toward
+    this._headingKnob = null;   // last direction-knob value, for relative turning
     this.hold = { pitchUp: false, pitchDown: false, turnLeft: false, turnRight: false };
     this.locationName = '—';
     this.status = 'Waiting for Google Maps…';
@@ -93,15 +94,7 @@ export class StreetViewEngine {
 
     try {
       let panoId = loc.pano;
-      if (!panoId) {
-        const { data } = await this._svc.getPanorama({
-          location: { lat: loc.lat, lng: loc.lng },
-          radius: 1000,
-          preference: google.maps.StreetViewPreference.NEAREST,
-          sources: [google.maps.StreetViewSource.OUTDOOR],
-        });
-        panoId = data.location.pano;
-      }
+      if (!panoId) panoId = await this._findPano(loc);
       const status = await this._showPano(panoId);
       this._setStatus(status === 'OK' ? '' : `Street View did not load (${status})`);
       return status;
@@ -110,6 +103,24 @@ export class StreetViewEngine {
       const reason = err?.code || err?.message || String(err);
       this._setStatus(`No Street View found near ${this.locationName} (${reason})`);
       return reason;
+    }
+  }
+
+  // Google's own car imagery first. Member-contributed photos (served from
+  // lh3.googleusercontent.com) get rate-limited with HTTP 429 and then render
+  // black, and they usually have no links, so travel mode dead-ends on them.
+  // They're only used where there is no car imagery nearby.
+  async _findPano(loc) {
+    const request = (source) => this._svc.getPanorama({
+      location: { lat: loc.lat, lng: loc.lng },
+      radius: 1000,
+      preference: google.maps.StreetViewPreference.NEAREST,
+      sources: [source],
+    });
+    try {
+      return (await request(google.maps.StreetViewSource.GOOGLE)).data.location.pano;
+    } catch {
+      return (await request(google.maps.StreetViewSource.OUTDOOR)).data.location.pano;
     }
   }
 
@@ -139,8 +150,18 @@ export class StreetViewEngine {
   }
 
   changeSpeed(delta) {
-    this.speed = clamp(this.speed + delta, SPEED_MIN, SPEED_MAX);
+    this.speed = clamp(Math.round((this.speed + delta) * 10) / 10, SPEED_MIN, SPEED_MAX);
     this._emit();
+  }
+
+  // Endless knobs: small relative moves instead of positions.
+  nudgeHeading(deg) {
+    this.heading = wrap360(this.heading + deg);
+    this.alignHeading = null;
+  }
+
+  nudgePitch(deg) {
+    this.targetPitch = clamp(this.targetPitch + deg, -PITCH_LIMIT, PITCH_LIMIT);
   }
 
   setSpeedNormalized(v) {
@@ -155,7 +176,10 @@ export class StreetViewEngine {
   }
 
   setHeadingNormalized(v) {
-    this.heading = wrap360(v * 360);
+    // Relative: the view turns by as much as the knob moves (full sweep = 360°),
+    // so touching the knob never makes the view jump to the knob's position.
+    if (this._headingKnob != null) this.heading = wrap360(this.heading + (v - this._headingKnob) * 360);
+    this._headingKnob = v;
     this.alignHeading = null;
   }
 

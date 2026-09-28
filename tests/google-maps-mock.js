@@ -3,7 +3,11 @@
 // bitten us with the real library:
 //   - it overwrites the container's inline style (position: relative), which
 //     once collapsed the viewer to 0px tall and left a black screen;
-//   - addListener() returns a handle with remove().
+//   - addListener() returns a handle with remove();
+//   - Google's car imagery and member-contributed photos are separate sources.
+//     Contributed photos (lh3.googleusercontent.com) get rate-limited (HTTP 429)
+//     and render black, so car imagery must be asked for first. Above 80° latitude
+//     the mock has no car imagery, to exercise the fallback.
 (() => {
   const listeners = {};
   let pov = { heading: 0, pitch: 0 };
@@ -32,14 +36,22 @@
     getLocation() { return { description: 'Mock St' }; }
   }
 
+  window.__svRequests = [];
   class StreetViewService {
-    async getPanorama() { return { data: { location: { pano: 'start' } } }; }
+    async getPanorama({ location, sources }) {
+      window.__svRequests.push(sources.join(','));
+      if (sources.includes('google')) {
+        if (location.lat > 80) throw Object.assign(new Error('no car imagery'), { code: 'ZERO_RESULTS' });
+        return { data: { location: { pano: 'car-start' } } };
+      }
+      return { data: { location: { pano: 'photo-start' } } };
+    }
   }
 
   window.google = {
     maps: {
       StreetViewPreference: { NEAREST: 'nearest' },
-      StreetViewSource: { OUTDOOR: 'outdoor' },
+      StreetViewSource: { OUTDOOR: 'outdoor', GOOGLE: 'google' },
       importLibrary: async () => ({ StreetViewPanorama, StreetViewService }),
     },
   };
