@@ -83,7 +83,7 @@ export class UI {
     box.className = state;
     if (source === 'file') {
       // A key typed here would be ignored while the file exists, so don't offer to replace it.
-      box.textContent = `Key ending …${key.slice(-4)} from config.local.json in the project folder — ${label}`;
+      box.textContent = `Key ending …${key.slice(-4)} provided by the server (config.local.json on this computer, the MAPS_API_KEY secret on Cloudflare) — ${label}`;
       $('#api-key-form').hidden = true;
       return;
     }

@@ -6,7 +6,8 @@ import { UI } from './ui.js';
 import { loadLocations, saveLocationOverride, resetLocations, SLOTS } from './locations.js';
 
 const KEY_STORAGE = 'midimap.apiKey';
-// Optional, never committed (*.local.json is git-ignored): {"mapsApiKey": "…"}
+// Served by the host: a git-ignored file locally ({"mapsApiKey": "…"}), the
+// MAPS_API_KEY secret on Cloudflare (src/worker.js). Never committed.
 const KEY_FILE = 'config.local.json';
 
 let locations = loadLocations();
@@ -128,8 +129,8 @@ function toggleFullscreen() {
 
 // ---- Google Maps -------------------------------------------------------------
 
-// Where the key comes from, in order: ?key= in the address, the local config
-// file next to the page (local setups), then this browser's saved key.
+// Where the key comes from, in order: ?key= in the address, the server's key
+// file (local file or Cloudflare secret), then this browser's saved key.
 async function readKey() {
   const fromUrl = new URLSearchParams(location.search).get('key');
   if (fromUrl) return { key: fromUrl, source: 'url' };
@@ -285,7 +286,7 @@ async function boot() {
     ui.showKeyPrompt('Paste a Google Maps JavaScript API key to begin.');
     return;
   }
-  step('key', 'ok', `ending …${key.slice(-4)}${source === 'file' ? ` (from ${KEY_FILE})` : ''}`);
+  step('key', 'ok', `ending …${key.slice(-4)}${source === 'file' ? ' (from the server)' : ''}`);
   activeKey = key;
   keySource = source;
   showKeyState('checking');

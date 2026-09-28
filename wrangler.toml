@@ -1,0 +1,11 @@
+name = "midimap"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+
+# Workers Static Assets: the site's files are served from the project folder.
+# .assetsignore keeps everything else (including the local key file) out.
+# The Worker runs first for the key path, so a file there could never be served.
+[assets]
+directory = "."
+binding = "ASSETS"
+run_worker_first = ["/config.local.json"]

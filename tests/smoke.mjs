@@ -129,6 +129,11 @@ const learn = (page, rowText) => page.locator('#mappings tr', { hasText: rowText
   const pad = (n) => page.evaluate((p) => { window.__midi(0xb0, 0, 0); window.__midi(0xb0, 32, 0); window.__midi(0xc0, p); }, n);
   await page.keyboard.press('Escape'); await page.keyboard.press('Backquote');
 
+  await pad(7); await page.waitForTimeout(700);
+  check('MiniLab pad 8 jumps to place 8 out of the box', (await text(page, '#hud-location')) === 'Karl-Marx-Allee, Berlin');
+  await pad(0); await page.waitForTimeout(700);
+  check('MiniLab pad 1 jumps to place 1 out of the box', (await text(page, '#hud-location')) === 'Times Square, New York');
+
   await learn(page, 'Tilt (mod wheel');
   await pad(2); await page.waitForTimeout(100);
   check('MiniLab pad: knob action refuses a program change', (await text(page, '#toast')).includes('single press'));
@@ -251,6 +256,7 @@ const learn = (page, rowText) => page.locator('#mappings tr', { hasText: rowText
   const b = await page.evaluate(() => JSON.parse(localStorage.getItem('midimap.bindings.v1')));
   check('upgrade: adds the direction knob default', b['midi:cc:1:71'] === 'heading.set');
   check('upgrade: keeps an input already in use', b['midi:cc:1:74'] === 'pause');
+  check('upgrade: adds the MiniLab pads', b['midi:pc:*:0'] === 'goto.1' && b['midi:pc:*:7'] === 'goto.8');
   await page.close();
 }
 
@@ -261,7 +267,7 @@ const learn = (page, rowText) => page.locator('#mappings tr', { hasText: rowText
   });
   const steps = await page.$$eval('#checklist-items li', (l) => l.map((x) => x.className));
   check('key file: startup checklist all green', steps.every((s) => s === 'ok'), steps.join(','));
-  check('key file: checklist names the file', (await text(page, '#checklist-items')).includes('…wxyz (from config.local.json)'));
+  check('key file: checklist says where the key came from', (await text(page, '#checklist-items')).includes('…wxyz (from the server)'));
   await page.close();
 }
 
@@ -272,6 +278,24 @@ const learn = (page, rowText) => page.locator('#mappings tr', { hasText: rowText
   check('no key: checklist flags the key step', steps[1] === 'fail', steps.join(','));
   check('no key: settings panel opens', await page.isVisible('#panel'));
   await page.close();
+}
+
+// ---- Cloudflare Worker: serves the key from a secret, never from a file ------------------
+{
+  const { default: worker } = await import('../src/worker.js');
+  const assets = { fetch: async (req) => new Response(`asset ${new URL(req.url).pathname}`) };
+  const get = (p, env) => worker.fetch(new Request(`https://midimap.example${p}`), env);
+
+  const res = await get('/config.local.json', { ASSETS: assets, MAPS_API_KEY: 'SECRETkey1' });
+  const body = await res.json();
+  check('worker: key file comes from the secret', body.mapsApiKey === 'SECRETkey1');
+  check('worker: key file is never cached', res.headers.get('cache-control') === 'no-store');
+  const none = await get('/config.local.json', { ASSETS: assets });
+  check('worker: no secret set → 404, so the page falls back to the browser key', none.status === 404);
+  check('worker: other paths are the site files', (await (await get('/js/main.js', { ASSETS: assets })).text()) === 'asset /js/main.js');
+
+  const ignore = fs.readFileSync(path.join(root, '.assetsignore'), 'utf8');
+  check('worker: local key file is never uploaded', /^\*\.local\.json$/m.test(ignore));
 }
 
 await browser.close();

@@ -8,8 +8,9 @@ module in Drift.
 
 ## Run it
 
-**Online (GitHub Pages):** open <https://studiotherefore.github.io/MIDIMap/> in Chrome
-or Edge. Restrict the API key's HTTP referrer to `https://studiotherefore.github.io/*`.
+**Online (Cloudflare):** open <https://midimap.studiotherefore.workers.dev> in Chrome
+or Edge. The key comes from the Worker's `MAPS_API_KEY` secret (see `src/worker.js`);
+restrict it to `https://midimap.studiotherefore.workers.dev/*`. Deploy with `npm run deploy`.
 
 **Locally:**
 
@@ -41,6 +42,7 @@ or Edge. Restrict the API key's HTTP referrer to `https://studiotherefore.github
 | `←` / `→` (hold) | Turn left / right |
 | MIDI CC1 (mod wheel), CC11 (expression) | Tilt the camera, any channel |
 | MIDI CC74, channel 1 | Speed (knob: reverse ← stop → forward) |
+| MIDI program change 0–7 (Arturia MiniLab 3 pads 1–8) | Go to places 1–8 |
 | MIDI CC71, channel 1 | Direction (the view turns as far as the knob does; full sweep = 360°) |
 | `` ` `` | Mapping panel |
 | `H` / `F` | Hide HUD / fullscreen |

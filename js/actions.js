@@ -44,12 +44,16 @@ export const DEFAULTS_ADDED = {
   // Keyboard stand-in controller: W/S knob (CC74) = speed, A/D knob (CC71) = direction.
   // Channel 1 only, so a real controller's knobs on other channels are left free.
   2: { 'midi:cc:1:74': 'speed.set', 'midi:cc:1:71': 'heading.set' },
+  // Arturia MiniLab 3 pads send program changes out of the box (pad 1 = program 0):
+  // pads 1–8 jump to places 1–8, on any channel.
+  3: Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8].map((slot) => [`midi:pc:*:${slot - 1}`, `goto.${slot}`])),
 };
-export const DEFAULTS_VERSION = 2;
+export const DEFAULTS_VERSION = 3;
 
 // Source ids:  key:<KeyboardEvent.code>
 //              midi:cc:<channel|*>:<number>   midi:note:<channel|*>:<number>
 //              midi:pb:<channel|*>            midi:at:<channel|*>
+//              midi:pc:<channel|*>:<program>  (program change)
 export const DEFAULT_BINDINGS = {
   'key:Digit1': 'goto.1', 'key:Digit2': 'goto.2', 'key:Digit3': 'goto.3',
   'key:Digit4': 'goto.4', 'key:Digit5': 'goto.5', 'key:Digit6': 'goto.6',
@@ -65,4 +69,5 @@ export const DEFAULT_BINDINGS = {
   'midi:cc:*:1': 'pitch.set',
   'midi:cc:*:11': 'pitch.set',
   ...DEFAULTS_ADDED[2],
+  ...DEFAULTS_ADDED[3],
 };

@@ -20,7 +20,18 @@ Cloud settings), give click-by-click steps.
   and tilt have been confirmed by the author.
 - **Not yet tried with a physical MIDI controller.** MIDI learn has only been
   tested with a simulated device and the keyboard stand-in (below).
-- Live at https://studiotherefore.github.io/MIDIMap/. **GitHub Pages currently
+- **Hosted on Cloudflare** (since 2026-09-28): https://midimap.studiotherefore.workers.dev,
+  Worker `midimap` on the author's Cloudflare account, **kept entirely separate
+  from Drift** at the author's request (own worker, own wrangler install in
+  this folder, own secret; never touch Drift's files or config). Deploy with
+  `npm run deploy` (wrangler). `src/worker.js` serves the static files and
+  answers `/config.local.json` from the `MAPS_API_KEY` secret
+  (`npx wrangler secret put MAPS_API_KEY`); `.assetsignore` limits the upload
+  to index.html, css/ and js/ (9 files). Note: wrangler's "Read N files" count
+  is taken *before* `.assetsignore` is applied; check with
+  `WRANGLER_LOG=debug npx wrangler deploy --dry-run` and "Ignoring asset" lines.
+- The old GitHub Pages site (https://studiotherefore.github.io/MIDIMap/) is due
+  to be retired. **GitHub Pages currently
   publishes the branch `claude/gallant-knuth-hvt5w2`, not `main`**: `main` holds
   only an empty initial commit, and PR #1 (that branch → `main`) is still open.
   The repo's default branch is also that claude branch. The PR description says
@@ -60,11 +71,12 @@ Cloud settings), give click-by-click steps.
   (`{"mapsApiKey": "…"}`, git-ignored via `*.local.json`; template in
   `config.example.json`; the test server refuses to serve it), then the
   browser's localStorage (`midimap.apiKey`, set via the in-page panel).
-  GitHub Pages has no config file, so the live site still uses the panel.
+  On Cloudflare the Worker answers that same path from the secret, so the
+  page code is identical locally and live.
   Don't ask the author to paste the key into chat.
-- The key must allow the Maps JavaScript API and a website restriction for
-  every address used, e.g. `https://studiotherefore.github.io/*` and
-  `http://localhost:*`.
+- The key (a dedicated "MIDIMap" key, not Drift's) must allow the Maps
+  JavaScript API and a website restriction for every address used:
+  `http://localhost:8000/*` and `https://midimap.studiotherefore.workers.dev/*`.
 
 ## Architecture (no build step, plain ES modules)
 
