@@ -266,6 +266,7 @@ const map = new maplibregl.Map({
   attributionControl: { compact: true },
 });
 new ResizeObserver(() => map.resize()).observe($('#map'));
+window.blend.map = map;
 const mapIdle = () => new Promise((r) => (map.loaded() && map.areTilesLoaded() ? r() : map.once('idle', r)));
 
 map.on('load', () => {
@@ -278,20 +279,35 @@ map.on('load', () => {
 const here = Object.assign(document.createElement('div'), { style: 'width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:14px solid #ff5a36' });
 const marker = new maplibregl.Marker({ element: here, rotationAlignment: 'map' });
 let listedAt = null;
+let followedId = null;
 setInterval(() => {
   const a = S.runA && S.runA.at(S.index);
   if (!a) return;
   marker.setLngLat(a).setRotation(S.travel + S.yawOffset + S.glance).addTo(map);
-  if (!map.getBounds().contains(a)) map.easeTo({ center: a });
+  // Follow the playing photo only when it changes, so the map can be panned
+  // freely and a jump elsewhere isn't pulled back to the current run.
+  const id = S.runA.ids[S.index];
+  if (id !== followedId) {
+    followedId = id;
+    if (!map.getBounds().contains(a)) map.easeTo({ center: a });
+  }
   if (!listedAt || distance(listedAt, a) > 40) {
     listedAt = a;
     listOtherRuns();
   }
 }, 400);
 
-async function openNear(lngLat, metres, label) {
-  await mapIdle();
-  const [img] = imagesNearFromTiles(map, lngLat, metres, (p) => p.is_pano);
+// moved: the map was just moved, so wait for the new area's coverage before searching.
+async function openNear(lngLat, metres, label, moved = false) {
+  if (moved) await new Promise((r) => map.once('idle', r));
+  else await mapIdle();
+  const near = imagesNearFromTiles(map, lngLat, metres, (p) => p.is_pano);
+  // Prefer a proper run (20+ photos loaded in the map tiles) over a lone 360° photo, which can't play.
+  const counts = new Map();
+  for (const f of map.querySourceFeatures('mly', { sourceLayer: 'image', filter: ['==', ['get', 'is_pano'], true] })) {
+    counts.set(f.properties.sequence_id, (counts.get(f.properties.sequence_id) || 0) + 1);
+  }
+  const img = near.find((i) => (counts.get(i.sequence) || 0) >= 20) || near[0];
   if (!img) return status(`No 360° photo within ${metres} m of ${label || 'that spot'}. Try a green line on the map.`);
   listedAt = null;
   await startRun(img.sequence, img.id);
@@ -303,7 +319,7 @@ function jumpTo(slot) {
   const loc = DEFAULT_LOCATIONS[slot];
   map.jumpTo({ center: [loc.lng, loc.lat], zoom: 16 });
   status(`Going to ${loc.name}…`);
-  openNear(loc, 400, loc.name);
+  openNear(loc, 400, loc.name, true);
 }
 $('#jump').replaceChildren(...SLOTS.map((s) => Object.assign(document.createElement('option'), { value: s, textContent: `${s}: ${DEFAULT_LOCATIONS[s].name}` })));
 $('#jump').value = START_SLOT;

@@ -123,8 +123,9 @@ Each lives in `experiments/<name>/`, is served online at
 
 ## Run and test
 
-- `npm start` serves the app at http://localhost:8000, bound to 127.0.0.1 so
-  the key file isn't reachable from the network. ES modules and Web MIDI
+- `npm start` (scripts/serve.mjs) serves the app at http://localhost:8000, bound to
+  127.0.0.1 so the key file isn't reachable from the network, with
+  `Cache-Control: no-cache` (python's http.server let Chrome reuse stale ES modules). ES modules and Web MIDI
   need http://localhost or https, not `file://`. Use Chrome or Edge; Safari
   has no Web MIDI.
 - `npm test` (after `npm install` once) runs `tests/smoke.mjs`. It serves the

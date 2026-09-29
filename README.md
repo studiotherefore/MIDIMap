@@ -26,7 +26,7 @@ restrict it to `https://midimap.studiotherefore.workers.dev/*`. Deploy with `npm
    ```sh
    npm start
    ```
-   (`python3 -m http.server 8000 --bind 127.0.0.1`, reachable only from this computer.)
+   (A small Node server, reachable only from this computer, that stops the browser reusing stale copies of edited files.)
 4. Open <http://localhost:8000> in **Chrome or Edge**, since Safari has no Web MIDI.
 
 ## Controls (defaults)

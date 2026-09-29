@@ -11,6 +11,7 @@
 node_modules/
 tests/
 src/
+scripts/
 package.json
 package-lock.json
 wrangler.toml
