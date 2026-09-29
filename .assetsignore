@@ -24,3 +24,4 @@ README.md
 .nojekyll
 app/
 MIDIMap.app/
+migrations/

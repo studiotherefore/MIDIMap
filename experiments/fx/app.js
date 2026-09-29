@@ -8,6 +8,7 @@
 import { readToken, makeGraph, TILES, imagesNearFromTiles, bearing, distance, Run } from '../lib/mapillary.js';
 import { PanoBlend, BLEND_MODES } from '../blend/renderer.js';
 import { FxChain, PARAMS, PRESETS, neutralLook } from './fx.js';
+import { PresetSync } from '../lib/presets-sync.js';
 import { DEFAULT_LOCATIONS, SLOTS } from '../../js/locations.js';
 
 const $ = (s) => document.querySelector(s);
@@ -605,53 +606,119 @@ async function applyScene({ settings = {}, photo, runB }) {
   if (runB && settings.bMode === 'run' && S.runB?.id !== runB) await useRunB(runB, null);
 }
 
-// ---- saved presets -------------------------------------------------------------------------
-// Kept in this browser (per site: online, localhost:8000 and the app each have
-// their own list); Export/Import moves them between places as a JSON file.
+// ---- saved presets (synced through Cloudflare) ---------------------------------------------
+// `remote` is the shared list (Cloudflare D1, cached in this browser for when
+// offline). `local` holds presets saved where there's no sync key yet; they're
+// uploaded as soon as there is one. Export/Import still move presets as a file.
 
-const USER_PRESETS_KEY = 'midimap.fx.presets.v1';
+const REMOTE_CACHE = 'midimap.fx.presets.remote.v1';
+const LOCAL_ONLY = 'midimap.fx.presets.v1';
 const SCENE_KEYS = ['mode', 'mix', 'bMode', 'delay', 'smooth', 'fps', 'dir', 'fov', 'pitch', 'sun', 'follow', 'sharp'];
-let userPresets = {};
-try {
-  userPresets = JSON.parse(localStorage.getItem(USER_PRESETS_KEY)) || {};
-} catch {
-  /* none saved */
+const presetSync = new PresetSync();
+const readStore = (k) => { try { return JSON.parse(localStorage.getItem(k)) || {}; } catch { return {}; } };
+const writeStore = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage blocked */ } };
+let remote = readStore(REMOTE_CACHE);
+let local = readStore(LOCAL_ONLY);
+let offline = false;
+
+const userPresets = () => ({ ...remote, ...local });
+const allPresets = () => ({ ...PRESETS, ...userPresets() });
+
+async function refreshPresets() {
+  try {
+    remote = (await presetSync.list()).presets;
+    writeStore(REMOTE_CACHE, remote);
+    offline = false;
+    if (presetSync.canWrite && Object.keys(local).length) await uploadLocal();
+  } catch {
+    offline = true; // keep showing the last synced list
+  }
+  renderPresets();
+  renderSync();
 }
 
-const allPresets = () => ({ ...PRESETS, ...userPresets });
+async function uploadLocal() {
+  const names = Object.keys(local);
+  for (const n of names) {
+    await presetSync.save(n, local[n]);
+    remote[n] = local[n];
+    delete local[n];
+  }
+  writeStore(LOCAL_ONLY, local);
+  writeStore(REMOTE_CACHE, remote);
+  status(`Uploaded ${names.length} preset${names.length === 1 ? '' : 's'} saved in this browser, so they're shared now.`);
+}
 
-function storeUserPresets() {
-  try {
-    localStorage.setItem(USER_PRESETS_KEY, JSON.stringify(userPresets));
-  } catch {
-    status('Could not save presets in this browser (storage is blocked).', true);
+async function storePreset(name, preset) {
+  if (presetSync.canWrite) {
+    await presetSync.save(name, preset);
+    remote[name] = preset;
+    delete local[name];
+    writeStore(REMOTE_CACHE, remote);
+    writeStore(LOCAL_ONLY, local);
+    return 'shared';
+  }
+  local[name] = preset;
+  writeStore(LOCAL_ONLY, local);
+  return 'this browser only';
+}
+
+async function deletePreset(name) {
+  if (name in local) {
+    delete local[name];
+    writeStore(LOCAL_ONLY, local);
+  } else {
+    if (!presetSync.canWrite) throw new Error('Deleting a shared preset needs the sync key in this browser.');
+    await presetSync.remove(name);
+    delete remote[name];
+    writeStore(REMOTE_CACHE, remote);
   }
 }
 
 function renderPresets() {
+  const mine = userPresets();
   $('#presets').replaceChildren(...Object.keys(allPresets()).map((name, i) => {
     const b = document.createElement('button');
     b.className = name === currentPreset ? 'on' : '';
     b.textContent = `${i + 1} ${name}`;
-    b.title = i < 9 ? `Shift+${i + 1}` : '';
+    b.title = (i < 9 ? `Shift+${i + 1}` : '') + (name in local ? ' · saved in this browser only' : '');
+    if (name in local) b.classList.add('local');
     b.addEventListener('click', () => applyPreset(name));
-    if (name in userPresets) {
+    if (name in mine) {
       const x = document.createElement('span');
       x.className = 'x';
       x.textContent = '×';
       x.title = 'Delete this preset';
-      x.addEventListener('click', (e) => {
+      x.addEventListener('click', async (e) => {
         e.stopPropagation();
         if (!confirm(`Delete the preset "${name}"?`)) return;
-        delete userPresets[name];
-        storeUserPresets();
-        if (currentPreset === name) currentPreset = null;
-        renderPresets();
+        try {
+          await deletePreset(name);
+          if (currentPreset === name) currentPreset = null;
+          renderPresets();
+          renderSync();
+          status(`Deleted "${name}".`);
+        } catch (err) {
+          status(err.message, true);
+        }
       });
       b.append(x);
     }
     return b;
   }));
+}
+
+function renderSync() {
+  const shared = Object.keys(remote).length;
+  let text;
+  if (presetSync.canWrite) text = `Presets sync: on. ${shared} shared preset${shared === 1 ? '' : 's'}; saving here updates everywhere.`;
+  else text = `Presets sync: read-only in this browser (${shared} shared). Paste the sync key to save and delete here.`;
+  if (offline) text = 'Presets sync: offline, showing the last synced list. Saving works again once connected.';
+  if (Object.keys(local).length) text += ` ${Object.keys(local).length} saved in this browser only (dashed).`;
+  $('#sync-status').textContent = text;
+  $('#copy-key').hidden = presetSync.keySource !== 'file';
+  $('#key-form').hidden = presetSync.canWrite;
+  $('#forget-key').hidden = presetSync.keySource !== 'browser';
 }
 
 // Everything needed to come back to this moment: effects, blend/camera/playback, photo.
@@ -666,8 +733,8 @@ function captureScene() {
 function openSaveForm() {
   $('#save-form').hidden = false;
   $('#save-preset').hidden = true;
-  const n = Object.keys(userPresets).length + 1;
-  $('#preset-name').value = currentPreset && currentPreset in userPresets ? currentPreset : `preset ${n}`;
+  const n = Object.keys(userPresets()).length + 1;
+  $('#preset-name').value = currentPreset && currentPreset in userPresets() ? currentPreset : `preset ${n}`;
   $('#preset-name').select();
   $('#preset-name').focus();
 }
@@ -677,20 +744,24 @@ function closeSaveForm() {
   $('#save-preset').hidden = false;
 }
 
-function savePreset() {
+async function savePreset() {
   const name = $('#preset-name').value.trim();
   if (!name) return;
   if (name in PRESETS) {
     status(`"${name}" is a built-in preset; choose another name.`, true);
     return;
   }
-  const existed = name in userPresets;
-  userPresets[name] = captureScene();
-  storeUserPresets();
-  currentPreset = name;
-  closeSaveForm();
-  renderPresets();
-  status(`${existed ? 'Updated' : 'Saved'} preset "${name}".`);
+  const existed = name in userPresets();
+  try {
+    const where = await storePreset(name, captureScene());
+    currentPreset = name;
+    closeSaveForm();
+    renderPresets();
+    renderSync();
+    status(`${existed ? 'Updated' : 'Saved'} preset "${name}" (${where}).`);
+  } catch (err) {
+    status(`Could not save: ${err.message}`, true);
+  }
 }
 
 $('#save-preset').addEventListener('click', openSaveForm);
@@ -702,8 +773,9 @@ $('#preset-name').addEventListener('keydown', (e) => {
 });
 
 $('#export-presets').addEventListener('click', () => {
-  if (!Object.keys(userPresets).length) return status('No saved presets to export yet.');
-  const blob = new Blob([JSON.stringify(userPresets, null, 2)], { type: 'application/json' });
+  const mine = userPresets();
+  if (!Object.keys(mine).length) return status('No saved presets to export yet.');
+  const blob = new Blob([JSON.stringify(mine, null, 2)], { type: 'application/json' });
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'midimap-presets.json' });
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
@@ -715,15 +787,49 @@ $('#import-presets').addEventListener('change', async (e) => {
   if (!file) return;
   try {
     const incoming = JSON.parse(await file.text());
-    const names = Object.keys(incoming).filter((n) => !(n in PRESETS) && typeof incoming[n] === 'object');
-    for (const n of names) userPresets[n] = incoming[n];
-    storeUserPresets();
+    const names = Object.keys(incoming).filter((n) => !(n in PRESETS) && incoming[n] && typeof incoming[n] === 'object');
+    for (const n of names) await storePreset(n, incoming[n]);
     renderPresets();
+    renderSync();
     status(`Imported ${names.length} preset${names.length === 1 ? '' : 's'}.`);
   } catch (err) {
     status(`Could not import that file: ${err.message}`, true);
   }
 });
+
+// The sync key: copy it on this Mac, paste it once in each other browser.
+$('#copy-key').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(presetSync.key);
+    status('Sync key copied. In another browser, paste it into the sync key box under Effects.');
+  } catch {
+    status('Could not copy to the clipboard.', true);
+  }
+});
+async function useKey() {
+  try {
+    await presetSync.useKey($('#sync-key').value);
+    $('#sync-key').value = '';
+    status('Sync key accepted: saving here now updates everywhere.');
+    await refreshPresets();
+  } catch (err) {
+    status(err.wrongKey ? 'That sync key is wrong.' : `Could not check the key: ${err.message}`, true);
+  }
+}
+$('#use-key').addEventListener('click', useKey);
+$('#sync-key').addEventListener('keydown', (e) => { if (e.key === 'Enter') useKey(); });
+$('#forget-key').addEventListener('click', () => {
+  presetSync.forgetKey();
+  renderSync();
+  status('This browser no longer has the sync key (presets stay shared; it just can’t change them).');
+});
+
+// Presets saved elsewhere show up within 30 s, or straight away on returning to this window.
+if (!OUTPUT) {
+  presetSync.init().then(refreshPresets);
+  setInterval(refreshPresets, 30000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshPresets(); });
+}
 
 function startLearn(id) {
   learning = learning === id ? null : id;

@@ -29,3 +29,9 @@ body.output #view { cursor: none; }
 #preset-name { flex: 1; min-width: 0; font: inherit; color: var(--fg); background: #000; border: 1px solid var(--line); border-radius: 3px; padding: 3px 6px; }
 .button { font: inherit; color: var(--fg); background: #1c1c20; border: 1px solid var(--line); border-radius: 3px; padding: 3px 8px; cursor: pointer; }
 .button:hover { border-color: var(--fg); }
+
+.presets button.local { border-style: dashed; }
+.sync { margin-top: 4px; }
+#key-form { display: flex; gap: 6px; flex: 1; }
+#key-form[hidden] { display: none; }
+#sync-key { flex: 1; min-width: 0; font: inherit; color: var(--fg); background: #000; border: 1px solid var(--line); border-radius: 3px; padding: 3px 6px; }

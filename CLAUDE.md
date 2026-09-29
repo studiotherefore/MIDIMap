@@ -106,10 +106,19 @@ Each lives in `experiments/<name>/`, is served online at
   tint colour, bloom, recall, recall_depth) plus new echo*, grain, posterize,
   instability. Recall is real here: a ring of 15 half-size frames, one per 2 s.
   Presets (Shift+1–9): six built-in looks, "badwater" (the author's saved
-  scene), plus **user presets** saved from the panel (Save preset…; localStorage
-  `midimap.fx.presets.v1`, per site, so online / localhost:8000 / the app each
-  keep their own; Export/Import JSON moves them). A preset may carry `scene`:
-  `settings` (blend/camera/playback keys), `photo` {sequence, image}, `runB`. **Hold the sun**: finds the brightest compact spot
+  scene), plus **user presets** saved from the panel (Save preset…), **synced
+  through Cloudflare**: D1 database `midimap-presets` (binding `DB`, table
+  from `migrations/`), API `/api/presets` in `src/worker.js`: GET public, PUT
+  and DELETE need header `x-midimap-key` = secret `PRESETS_KEY`. The key is
+  `presetsKey` in config.local.json (served only by the local servers, never
+  by the Worker), so localhost:8000 and the app can write; other browsers paste
+  it once (panel: "Copy sync key" on the Mac → paste box online; stored in
+  localStorage `midimap.syncKey.v1`). CORS allows only localhost:8000/8765.
+  Client: `experiments/lib/presets-sync.js`. Lists refresh every 30 s and on
+  returning to the tab; presets saved without a key stay "this browser only"
+  (dashed) and upload once a key is present; a cached copy covers offline.
+  A preset may carry `scene`: `settings` (blend/camera/playback keys), `photo`
+  {sequence, image}, `runB`. **Hold the sun**: finds the brightest compact spot
   in each A photo's upper half (256×128 readback; rejects dim or big-bright
   skies) and eases the camera onto it. MIDI learn per effect (localStorage
   `midimap.fx.learn.v1`); guessed defaults for knobs 5–8 = CC 93/18/19/16 and

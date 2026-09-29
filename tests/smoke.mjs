@@ -300,6 +300,48 @@ const learn = (page, rowText) => page.locator('#mappings tr', { hasText: rowText
   check('worker: no secret set → 404, so the page falls back to the browser key', none.status === 404);
   check('worker: other paths are the site files', (await (await get('/js/main.js', { ASSETS: assets })).text()) === 'asset /js/main.js');
 
+  // Presets API, against an in-memory stand-in for the D1 database.
+  const rows = new Map();
+  const DB = {
+    prepare(sql) {
+      let args = [];
+      const stmt = {
+        bind: (...a) => { args = a; return stmt; },
+        all: async () => ({ results: [...rows.values()] }),
+        run: async () => {
+          if (sql.startsWith('INSERT')) rows.set(args[0], { name: args[0], data: args[1], updated_at: args[2] });
+          if (sql.startsWith('DELETE')) rows.delete(args[0]);
+          return { success: true };
+        },
+      };
+      return stmt;
+    },
+  };
+  const env = { ASSETS: assets, DB, PRESETS_KEY: 'right-key', MAPS_API_KEY: 'K' };
+  const api = (method, p, { key, body, origin } = {}) => worker.fetch(new Request(`https://midimap.example/api/presets${p}`, {
+    method, body: body && JSON.stringify(body),
+    headers: { ...(key && { 'x-midimap-key': key }), ...(origin && { origin }), 'content-type': 'application/json' },
+  }), env);
+
+  check('presets: list starts empty', Object.keys((await (await api('GET', '')).json()).presets).length === 0);
+  check('presets: saving without the key is refused', (await api('PUT', '/dusk', { body: { hue: 30 } })).status === 401);
+  check('presets: saving with a wrong key is refused', (await api('PUT', '/dusk', { key: 'nope', body: { hue: 30 } })).status === 401);
+  check('presets: saving with the key works', (await api('PUT', '/dusk', { key: 'right-key', body: { hue: 30 } })).status === 200);
+  const listed = await (await api('GET', '')).json();
+  check('presets: saved preset is listed', listed.presets.dusk?.hue === 30);
+  check('presets: names with spaces work', (await api('PUT', `/${encodeURIComponent('golden hour')}`, { key: 'right-key', body: { hue: 40 } })).status === 200
+    && (await (await api('GET', '')).json()).presets['golden hour']?.hue === 40);
+  check('presets: deleting without the key is refused', (await api('DELETE', '/dusk')).status === 401);
+  check('presets: deleting with the key works', (await api('DELETE', '/dusk', { key: 'right-key' })).status === 200
+    && !('dusk' in (await (await api('GET', '')).json()).presets));
+  check('presets: rejects a body that is not a preset', (await api('PUT', '/x', { key: 'right-key', body: [1, 2] })).status === 400);
+  const local = await api('GET', '', { origin: 'http://localhost:8000' });
+  check('presets: the Mac copies may call it (CORS)', local.headers.get('access-control-allow-origin') === 'http://localhost:8000');
+  const stranger = await api('GET', '', { origin: 'https://example.com' });
+  check('presets: other sites may not call it from a browser', !stranger.headers.get('access-control-allow-origin'));
+  const cfg = await (await worker.fetch(new Request('https://midimap.example/config.local.json'), env)).json();
+  check('presets: the public key file never reveals the sync key', !('presetsKey' in cfg) && !JSON.stringify(cfg).includes('right-key'));
+
   const ignore = fs.readFileSync(path.join(root, '.assetsignore'), 'utf8');
   check('worker: local key file is never uploaded', /^\*\.local\.json$/m.test(ignore));
 }

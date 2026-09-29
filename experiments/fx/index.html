@@ -66,7 +66,15 @@
           <button id="save-cancel">Cancel</button>
         </span>
       </div>
-      <p class="note">A saved preset keeps the effects, blend, camera, playback and the current photo. Saving under an existing name updates it; × deletes. Presets live in this browser: use Export and Import to move them (for example into the MIDIMap app).</p>
+      <p class="note">A saved preset keeps the effects, blend, camera, playback and the current photo. Saving under an existing name updates it; × deletes.</p>
+      <div class="sync">
+        <p id="sync-status" class="note">Presets sync: checking…</p>
+        <p class="buttons">
+          <button id="copy-key" hidden>Copy sync key</button>
+          <span id="key-form" hidden><input id="sync-key" type="password" placeholder="paste the sync key" aria-label="Sync key"> <button id="use-key">Use key</button></span>
+          <button id="forget-key" hidden>Forget key</button>
+        </p>
+      </div>
       <p class="buttons"><button id="export-presets">Export presets</button> <label class="button">Import presets<input type="file" id="import-presets" accept="application/json" hidden></label></p>
       <div id="fx-params"></div>
       <label class="tint-colour">Tint colour <input type="color" id="tint-colour" value="#ff8c33"></label>
