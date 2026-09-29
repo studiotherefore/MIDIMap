@@ -38,6 +38,8 @@ export const neutralLook = () => ({
 });
 
 // Starting points, not a system: each is just a set of parameter values.
+// A preset may also carry a `scene`: blend, camera and playback settings, and
+// the photo to go to (a Mapillary sequence id and image id).
 export const PRESETS = {
   clean: {},
   'sun trails': { echo: 0.9, echo_trails: 1, echo_zoom: 1.004, bloom: 0.6, contrast: 1.2 },
@@ -45,6 +47,16 @@ export const PRESETS = {
   memory: { recall: 0.6, recall_depth: 0.8, blur: 2, saturation: 0.6, tint: 0.3, tint_r: 0.6, tint_g: 0.75, tint_b: 1 },
   dream: { bloom: 0.8, blur: 4, smear: 0.4, tint: 0.4, brightness: 1.1, echo: 0.6 },
   broken: { pixelate: 10, posterize: 0.6, instability: 0.6, grain: 0.5, contrast: 1.5, hue: 40 },
+  // Saved from the author's Chrome session, 2026-09-29: Badwater Road, Death Valley.
+  badwater: {
+    brightness: 0.86, contrast: 2.62, saturation: 0.71, hue: 179, tint: 0.95, invert: 0.27,
+    blur: 4.5, smear: 0.09, grain: 0.19, bloom: 0.14, recall: 0.2, recall_depth: 0.47,
+    echo: 0.22, echo_zoom: 1.037, echo_rotate: 0.29,
+    scene: {
+      settings: { mode: 2, mix: 0.4, bMode: 'delay', delay: 7, smooth: 0.25, fps: 2, dir: -1, fov: 87, pitch: 0, sun: true, follow: true },
+      photo: { sequence: 'tUm84JCwc2vklEQZ169yrz', image: '1674249717356348' },
+    },
+  },
 };
 
 const VERT = `#version 300 es

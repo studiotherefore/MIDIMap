@@ -453,7 +453,7 @@ window.addEventListener('keydown', (e) => {
   else if (e.code === 'KeyS') toggleSun();
   else if (e.code === 'KeyV') toggleRecord();
   else if (e.code === 'Escape') cancelLearn();
-  else if (e.shiftKey && /^Digit[1-6]$/.test(e.code)) applyPreset(Object.keys(PRESETS)[+e.code.slice(5) - 1]);
+  else if (e.shiftKey && /^Digit[1-9]$/.test(e.code)) applyPreset(Object.keys(PRESETS)[+e.code.slice(5) - 1]);
   else if (/^Digit[0-9]$/.test(e.code) && !e.shiftKey) { $('#jump').value = e.code.slice(5); jumpTo(e.code.slice(5)); }
   else if (e.code === 'BracketLeft' || e.code === 'BracketRight') {
     S.mode = (S.mode + (e.code === 'BracketRight' ? 1 : -1) + BLEND_MODES.length) % BLEND_MODES.length;
@@ -588,9 +588,20 @@ function refreshEffects() {
 
 function applyPreset(name) {
   if (!name) return;
-  Object.assign(look, neutralLook(), PRESETS[name]);
+  const { scene, ...values } = PRESETS[name];
+  Object.assign(look, neutralLook(), values);
+  if (scene) applyScene(scene);
   [...$('#presets').children].forEach((b) => b.classList.toggle('on', b.textContent.endsWith(name)));
   refreshEffects();
+}
+
+// A scene preset also sets blend, camera and playback, and goes to its photo.
+function applyScene({ settings = {}, photo }) {
+  for (const [k, v] of Object.entries(settings)) S[k] = v;
+  if (settings.sun !== undefined) $('#sun').textContent = `Hold the sun: ${S.sun ? 'on' : 'off'}`;
+  shown.b = null;
+  sync();
+  if (photo && S.runA?.ids[S.index] !== photo.image) startRun(photo.sequence, photo.image);
 }
 
 function startLearn(id) {
