@@ -53,6 +53,33 @@ Cloud settings), give click-by-click steps.
   **main encoder = CC114, relative** (64 ± steps). Both are now supported (below).
   A small CoreMIDI listener (Swift) was used to record this; it lived in the session scratchpad.
 
+## Experiments (separate from the instrument)
+
+The author wants a series of small experiments before deciding how to record
+and edit sequences (several recording approaches may each get an experiment).
+Each lives in `experiments/<name>/`, is served online at
+`/experiments/<name>/`, and must not change the instrument.
+
+- **1. Mapillary explorer** (`experiments/mapillary/`, 2026-09-28): MapLibre
+  map of Mapillary coverage (OSM basemap) + MapillaryJS viewer + panel with
+  capture date, estimated local time and season, 360°/flat, camera, and every
+  other capture run within 15 m. Token: `mapillaryToken` in config.local.json
+  locally, `MAPILLARY_TOKEN` secret on Cloudflare. Findings:
+  - Historical ghosting is viable: 27 capture runs within 15 m of one spot on
+    Karl-Marx-Allee (2015–2020, all seasons, a 2 am run); Venice has 360° runs.
+  - **Pixel access works** (thumbnails send `access-control-allow-origin: *`),
+    so real shaders and blending are possible, unlike Google.
+  - Mapillary's search API returns an arbitrary *sample* of a bbox and fails
+    intermittently (500/503). Use the coverage vector tiles' `image` layer
+    (`querySourceFeatures`) for "what's here": it lists every photo with id,
+    captured_at, is_pano, sequence_id. Keep the API for details, with retries.
+  - A browser tab in the background gets 0 fps, so maps and viewers never
+    finish loading there: test in a visible tab (the Browser pane), not a
+    background Claude-in-Chrome tab.
+- Next candidates: 2. two blended layers (temporal echo, historical
+  ghosting, 360° vs flat collisions, MIDI on blend mode/offset); then
+  recording/editing approaches, one experiment each.
+
 ## Run and test
 
 - `npm start` serves the app at http://localhost:8000, bound to 127.0.0.1 so

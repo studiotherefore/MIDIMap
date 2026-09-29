@@ -292,6 +292,10 @@ const learn = (page, rowText) => page.locator('#mappings tr', { hasText: rowText
   const body = await res.json();
   check('worker: key file comes from the secret', body.mapsApiKey === 'SECRETkey1');
   check('worker: key file is never cached', res.headers.get('cache-control') === 'no-store');
+  const both = await (await get('/config.local.json', { ASSETS: assets, MAPS_API_KEY: 'K', MAPILLARY_TOKEN: 'MLY|x' })).json();
+  check('worker: also serves the Mapillary token', both.mapillaryToken === 'MLY|x' && both.mapsApiKey === 'K');
+  const onlyMly = await (await get('/config.local.json', { ASSETS: assets, MAPILLARY_TOKEN: 'MLY|x' })).json();
+  check('worker: Mapillary token alone still served', onlyMly.mapillaryToken === 'MLY|x' && !('mapsApiKey' in onlyMly));
   const none = await get('/config.local.json', { ASSETS: assets });
   check('worker: no secret set → 404, so the page falls back to the browser key', none.status === 404);
   check('worker: other paths are the site files', (await (await get('/js/main.js', { ASSETS: assets })).text()) === 'asset /js/main.js');
