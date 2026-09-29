@@ -76,9 +76,31 @@ Each lives in `experiments/<name>/`, is served online at
   - A browser tab in the background gets 0 fps, so maps and viewers never
     finish loading there: test in a visible tab (the Browser pane), not a
     background Claude-in-Chrome tab.
-- Next candidates: 2. two blended layers (temporal echo, historical
-  ghosting, 360° vs flat collisions, MIDI on blend mode/offset); then
-  recording/editing approaches, one experiment each.
+- **2. Two-layer blend** (`experiments/blend/`, 2026-09-29): plays a 360°
+  run like a film; layer B = same run delayed N frames, or another 360° run
+  matched photo-by-photo by location; 8 blend modes; look straight up for the
+  sky (the author finds the sky view in 3D modes especially compelling).
+  **Renders the panoramas itself** (`renderer.js`: WebGL2, one full-screen
+  shader, equirectangular lookup rotated by each photo's
+  `computed_compass_angle`, image centre = that compass direction) instead of
+  MapillaryJS, so both layers share one camera and blend per pixel. Verified:
+  two runs 4 years and 9 m apart line up. Fixed MiniLab mapping (mod strip =
+  look up, knobs 74/71/76/77 = mix/delay/dissolve/speed, CC114 turn, pitch
+  bend glance, pads = blend modes, keys step). Shared helpers in
+  `experiments/lib/mapillary.js` (`Run` loads a sequence's ids, then details
+  in chunks of 50; sequences can have 2000+ photos).
+  - **Mapillary's image CDN is slow and uneven**: 1–13 s per 1024-px photo,
+    4–50 s per 2048-px (measured, repeat fetches no faster). So: 1024 px by
+    default, buffer 30 frames ahead, show the buffer. Mapillary's CC-BY-SA
+    licence allows caching, unlike Google: a Cloudflare caching proxy (and
+    later offline "performance packs") is a strong candidate experiment.
+  - Effects: reuse Drift's look *vocabulary* (tint/bloom/smear/recall, its
+    source→curve→amount→destination matrix, LOOK-HANDOFF.md) but implement
+    fresh as shaders on real pixels. Drift had to fake/remove echo because
+    Google's pixels are unreadable; here feedback/echo are directly possible.
+- Next candidates: fx layer (shaders, Drift vocabulary); 360° vs flat
+  perspective collisions; image caching proxy; then recording/editing
+  approaches, one experiment each.
 
 ## Run and test
 
