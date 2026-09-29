@@ -11,6 +11,10 @@ import { FxChain, PARAMS, PRESETS, neutralLook } from './fx.js';
 import { DEFAULT_LOCATIONS, SLOTS } from '../../js/locations.js';
 
 const $ = (s) => document.querySelector(s);
+// ?output: a clean picture that mirrors the control window (projector window, or
+// the MIDIMap app's off-screen Syphon output). No panel, no HUD, no MIDI of its own.
+const OUTPUT = new URLSearchParams(location.search).has('output');
+if (OUTPUT) document.body.classList.add('output');
 const MAX_B_METRES = 40;   // don't show another run's photo if it's further than this from layer A
 const START_SLOT = '8';    // Karl-Marx-Allee: ten 360° runs, winter 2021 to spring 2026
 // Mapillary's image server is slow and uneven (1–50 s per photo, measured), so
@@ -322,7 +326,7 @@ map.on('load', () => {
   map.addSource('mly', { type: 'vector', tiles: [`${TILES}?access_token=${encodeURIComponent(token)}`], minzoom: 0, maxzoom: 14 });
   map.addLayer({ id: 'pano-runs', type: 'line', source: 'mly', 'source-layer': 'sequence', filter: ['==', ['get', 'is_pano'], true],
     paint: { 'line-color': '#35d07f', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1, 17, 3] } });
-  jumpTo(START_SLOT);
+  if (!OUTPUT) jumpTo(START_SLOT);
 });
 
 const here = Object.assign(document.createElement('div'), { style: 'width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:14px solid #ff5a36' });
@@ -496,7 +500,9 @@ function onMidi([st, a, b]) {
   }
 }
 
-if (navigator.requestMIDIAccess) {
+if (OUTPUT) {
+  // The control window handles MIDI; the output only mirrors it.
+} else if (navigator.requestMIDIAccess) {
   navigator.requestMIDIAccess().then((access) => {
     const attach = () => {
       const names = [];
@@ -673,3 +679,48 @@ setInterval(() => {
   const s = Math.floor((performance.now() - recordStart) / 1000);
   $('#hud-rec').textContent = `● REC ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }, 250);
+
+// ---- mirroring to an output window ---------------------------------------------------------
+// The control window broadcasts its state 20 times a second; an ?output window
+// (same site, any tab or window, or the MIDIMap app's Syphon output) follows it.
+// Each loads its own photos, so the output never waits on the control window's screen.
+
+const MIRROR_KEYS = ['bMode', 'delay', 'dir', 'fps', 'mode', 'mix', 'smooth', 'sharp', 'pitch', 'fov', 'follow', 'yawOffset', 'glance', 'sun'];
+const channel = new BroadcastChannel('midimap-fx');
+
+if (OUTPUT) {
+  let loadingA = null;
+  let loadingB = null;
+  channel.onmessage = async ({ data }) => {
+    for (const k of MIRROR_KEYS) S[k] = data.S[k];
+    Object.assign(look, data.look);
+    if (data.runA && data.runA !== S.runA?.id && data.runA !== loadingA) {
+      loadingA = data.runA;
+      await startRun(data.runA, data.imageA);
+      loadingA = null;
+    }
+    if (data.runB && data.runB !== S.runB?.id && data.runB !== loadingB) {
+      loadingB = data.runB;
+      await useRunB(data.runB, null);
+      loadingB = null;
+    }
+    if (S.runA && S.runA.id === data.runA && S.index !== data.index) {
+      S.index = data.index;
+      prefetch(S.index);
+    }
+  };
+} else {
+  setInterval(() => channel.postMessage({
+    S: Object.fromEntries(MIRROR_KEYS.map((k) => [k, S[k]])),
+    look: { ...look },
+    runA: S.runA?.id || null,
+    imageA: S.runA?.ids[S.index] || null,
+    runB: S.bMode === 'run' ? S.runB?.id || null : null,
+    index: S.index,
+  }), 50);
+  // A clean projector window in an ordinary browser (the MIDIMap app has its own output).
+  if (!navigator.userAgent.includes('Electron')) {
+    $('#output-window').hidden = false;
+    $('#output-window').addEventListener('click', () => window.open('./?output', 'midimap-output', 'width=960,height=540'));
+  }
+}

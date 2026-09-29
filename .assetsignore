@@ -22,3 +22,5 @@ README.md
 .assetsignore
 .DS_Store
 .nojekyll
+app/
+MIDIMap.app/

@@ -15,3 +15,7 @@
 .tint-colour input { width: 48px; height: 22px; padding: 0; border: 1px solid var(--line); background: none; }
 
 #hud-rec { color: #ff3b30; font-weight: bold; }
+
+/* ?output: the picture alone */
+body.output #panel, body.output #hud { display: none !important; }
+body.output #view { cursor: none; }

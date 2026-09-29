@@ -113,10 +113,22 @@ Each lives in `experiments/<name>/`, is served online at
   author's unit). **Record**: `canvas.captureStream(60)` + MediaRecorder →
   H.264 MP4 at canvas size, 24 Mbps, picture only; saved to Downloads.
   The blend renderer gained an optional off-screen target and `fitCanvas()`.
-- **Syphon** is the next build (author asked): a browser can't publish
-  Syphon, so plan a small Electron app wrapping the experiments with
-  `node-syphon` (benoitlahoz/node-syphon, maintained 2026) publishing a
-  "MIDIMap" source. The author has MadMapper 5 and 6 and OBS.
+- **MIDIMap app with Syphon** (`app/`, 2026-09-29, see app/README.md):
+  Electron 44 + node-syphon 1.5. Control window = experiment 3; an off-screen
+  window (`offscreen.useSharedTexture`, 1920×1080, `setFrameRate` 30/60 via the
+  Output menu) loads `?output` and publishes each paint's
+  `textureInfo.handle.ioSurface` with `SyphonMetalServer.publishSurfaceHandle`.
+  Off-screen windows render 1 px per point: size the window 1920×1080 (dividing
+  by the display scale gave 960×540). **Mirroring**: the control page
+  broadcasts state on `BroadcastChannel('midimap-fx')` at 20 Hz; `?output`
+  pages follow it (also the browser's "Open output window" projector button).
+  Serves the project on 127.0.0.1:8765 via `scripts/serve.mjs`. Launch with the
+  git-ignored `MIDIMap.app` AppleScript launcher (osacompile) in the project
+  folder. Verified with a node-syphon client: 30.3 and 60.2 fps at 1920×1080;
+  output state matched control. The author has MadMapper 5 and 6 and OBS.
+- Capture advice given: in-page Record for sketches; Syphon Recorder/OBS
+  (ProRes) for quality; later an offline frame-by-frame render (4K, no
+  stalls) once sequences can be recorded. NDI only for a second computer.
 - Next candidates after that: 360° vs flat perspective collisions; image
   caching proxy (Mapillary's licence allows it); then recording/editing
   approaches, one experiment each.
