@@ -289,10 +289,10 @@ setInterval(() => {
   }
 }, 400);
 
-async function openNear(lngLat, metres) {
+async function openNear(lngLat, metres, label) {
   await mapIdle();
   const [img] = imagesNearFromTiles(map, lngLat, metres, (p) => p.is_pano);
-  if (!img) return status(`No 360° photo within ${metres} m of that spot. Try a green line.`);
+  if (!img) return status(`No 360° photo within ${metres} m of ${label || 'that spot'}. Try a green line on the map.`);
   listedAt = null;
   await startRun(img.sequence, img.id);
 }
@@ -302,7 +302,8 @@ map.on('click', (e) => (map.getZoom() < 14 ? map.easeTo({ center: e.lngLat, zoom
 function jumpTo(slot) {
   const loc = DEFAULT_LOCATIONS[slot];
   map.jumpTo({ center: [loc.lng, loc.lat], zoom: 16 });
-  openNear(loc, 80);
+  status(`Going to ${loc.name}…`);
+  openNear(loc, 400, loc.name);
 }
 $('#jump').replaceChildren(...SLOTS.map((s) => Object.assign(document.createElement('option'), { value: s, textContent: `${s}: ${DEFAULT_LOCATIONS[s].name}` })));
 $('#jump').value = START_SLOT;
@@ -379,7 +380,11 @@ window.addEventListener('keydown', (e) => {
   else if (e.code === 'ArrowDown') { e.preventDefault(); S.pitch = 0; }
   else if (e.code === 'KeyR') { S.dir = -S.dir; shown.b = null; sync(); }
   else if (e.code === 'KeyH') $('#panel').hidden = !$('#panel').hidden;
-  else if (/^Digit[1-8]$/.test(e.code)) { S.mode = +e.code.slice(5) - 1; sync(); }
+  else if (/^Digit[0-9]$/.test(e.code) && !e.shiftKey) { $('#jump').value = e.code.slice(5); jumpTo(e.code.slice(5)); }
+  else if (e.code === 'BracketLeft' || e.code === 'BracketRight') {
+    S.mode = (S.mode + (e.code === 'BracketRight' ? 1 : -1) + BLEND_MODES.length) % BLEND_MODES.length;
+    sync();
+  }
 });
 
 // Drag to look around; the wheel zooms.
