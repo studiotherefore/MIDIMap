@@ -453,7 +453,7 @@ window.addEventListener('keydown', (e) => {
   else if (e.code === 'KeyS') toggleSun();
   else if (e.code === 'KeyV') toggleRecord();
   else if (e.code === 'Escape') cancelLearn();
-  else if (e.shiftKey && /^Digit[1-9]$/.test(e.code)) applyPreset(Object.keys(PRESETS)[+e.code.slice(5) - 1]);
+  else if (e.shiftKey && /^Digit[1-9]$/.test(e.code)) applyPreset(Object.keys(allPresets())[+e.code.slice(5) - 1]);
   else if (/^Digit[0-9]$/.test(e.code) && !e.shiftKey) { $('#jump').value = e.code.slice(5); jumpTo(e.code.slice(5)); }
   else if (e.code === 'BracketLeft' || e.code === 'BracketRight') {
     S.mode = (S.mode + (e.code === 'BracketRight' ? 1 : -1) + BLEND_MODES.length) % BLEND_MODES.length;
@@ -554,12 +554,7 @@ function buildEffects() {
     box.append(row);
     rows.set(p.id, { row, input, val: row.querySelector('.val'), bound: row.querySelector('.bound'), p });
   }
-  $('#presets').replaceChildren(...Object.keys(PRESETS).map((name, i) => {
-    const b = document.createElement('button');
-    b.textContent = `${i + 1} ${name}`;
-    b.addEventListener('click', () => applyPreset(name));
-    return b;
-  }));
+  renderPresets();
   $('#tint-colour').addEventListener('input', (e) => {
     const hex = e.target.value;
     [look.tint_r, look.tint_g, look.tint_b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
@@ -586,23 +581,149 @@ function refreshEffects() {
   $('#tint-colour').value = `#${hex(look.tint_r)}${hex(look.tint_g)}${hex(look.tint_b)}`;
 }
 
+let currentPreset = null;
+
 function applyPreset(name) {
-  if (!name) return;
-  const { scene, ...values } = PRESETS[name];
+  const preset = allPresets()[name];
+  if (!preset) return;
+  const { scene, ...values } = preset;
   Object.assign(look, neutralLook(), values);
   if (scene) applyScene(scene);
-  [...$('#presets').children].forEach((b) => b.classList.toggle('on', b.textContent.endsWith(name)));
+  currentPreset = name;
+  renderPresets();
   refreshEffects();
 }
 
-// A scene preset also sets blend, camera and playback, and goes to its photo.
-function applyScene({ settings = {}, photo }) {
+// A scene preset also sets blend, camera and playback, and goes to its photo
+// (and to its second run, if layer B was another run).
+async function applyScene({ settings = {}, photo, runB }) {
   for (const [k, v] of Object.entries(settings)) S[k] = v;
   if (settings.sun !== undefined) $('#sun').textContent = `Hold the sun: ${S.sun ? 'on' : 'off'}`;
   shown.b = null;
   sync();
-  if (photo && S.runA?.ids[S.index] !== photo.image) startRun(photo.sequence, photo.image);
+  if (photo && S.runA?.ids[S.index] !== photo.image) await startRun(photo.sequence, photo.image);
+  if (runB && settings.bMode === 'run' && S.runB?.id !== runB) await useRunB(runB, null);
 }
+
+// ---- saved presets -------------------------------------------------------------------------
+// Kept in this browser (per site: online, localhost:8000 and the app each have
+// their own list); Export/Import moves them between places as a JSON file.
+
+const USER_PRESETS_KEY = 'midimap.fx.presets.v1';
+const SCENE_KEYS = ['mode', 'mix', 'bMode', 'delay', 'smooth', 'fps', 'dir', 'fov', 'pitch', 'sun', 'follow', 'sharp'];
+let userPresets = {};
+try {
+  userPresets = JSON.parse(localStorage.getItem(USER_PRESETS_KEY)) || {};
+} catch {
+  /* none saved */
+}
+
+const allPresets = () => ({ ...PRESETS, ...userPresets });
+
+function storeUserPresets() {
+  try {
+    localStorage.setItem(USER_PRESETS_KEY, JSON.stringify(userPresets));
+  } catch {
+    status('Could not save presets in this browser (storage is blocked).', true);
+  }
+}
+
+function renderPresets() {
+  $('#presets').replaceChildren(...Object.keys(allPresets()).map((name, i) => {
+    const b = document.createElement('button');
+    b.className = name === currentPreset ? 'on' : '';
+    b.textContent = `${i + 1} ${name}`;
+    b.title = i < 9 ? `Shift+${i + 1}` : '';
+    b.addEventListener('click', () => applyPreset(name));
+    if (name in userPresets) {
+      const x = document.createElement('span');
+      x.className = 'x';
+      x.textContent = '×';
+      x.title = 'Delete this preset';
+      x.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!confirm(`Delete the preset "${name}"?`)) return;
+        delete userPresets[name];
+        storeUserPresets();
+        if (currentPreset === name) currentPreset = null;
+        renderPresets();
+      });
+      b.append(x);
+    }
+    return b;
+  }));
+}
+
+// Everything needed to come back to this moment: effects, blend/camera/playback, photo.
+function captureScene() {
+  const preset = Object.fromEntries(Object.keys(neutralLook()).map((k) => [k, look[k]]));
+  preset.scene = { settings: Object.fromEntries(SCENE_KEYS.map((k) => [k, S[k]])) };
+  if (S.runA) preset.scene.photo = { sequence: S.runA.id, image: S.runA.ids[S.index] };
+  if (S.bMode === 'run' && S.runB) preset.scene.runB = S.runB.id;
+  return preset;
+}
+
+function openSaveForm() {
+  $('#save-form').hidden = false;
+  $('#save-preset').hidden = true;
+  const n = Object.keys(userPresets).length + 1;
+  $('#preset-name').value = currentPreset && currentPreset in userPresets ? currentPreset : `preset ${n}`;
+  $('#preset-name').select();
+  $('#preset-name').focus();
+}
+
+function closeSaveForm() {
+  $('#save-form').hidden = true;
+  $('#save-preset').hidden = false;
+}
+
+function savePreset() {
+  const name = $('#preset-name').value.trim();
+  if (!name) return;
+  if (name in PRESETS) {
+    status(`"${name}" is a built-in preset; choose another name.`, true);
+    return;
+  }
+  const existed = name in userPresets;
+  userPresets[name] = captureScene();
+  storeUserPresets();
+  currentPreset = name;
+  closeSaveForm();
+  renderPresets();
+  status(`${existed ? 'Updated' : 'Saved'} preset "${name}".`);
+}
+
+$('#save-preset').addEventListener('click', openSaveForm);
+$('#save-confirm').addEventListener('click', savePreset);
+$('#save-cancel').addEventListener('click', closeSaveForm);
+$('#preset-name').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') savePreset();
+  if (e.key === 'Escape') closeSaveForm();
+});
+
+$('#export-presets').addEventListener('click', () => {
+  if (!Object.keys(userPresets).length) return status('No saved presets to export yet.');
+  const blob = new Blob([JSON.stringify(userPresets, null, 2)], { type: 'application/json' });
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'midimap-presets.json' });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+});
+
+$('#import-presets').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const incoming = JSON.parse(await file.text());
+    const names = Object.keys(incoming).filter((n) => !(n in PRESETS) && typeof incoming[n] === 'object');
+    for (const n of names) userPresets[n] = incoming[n];
+    storeUserPresets();
+    renderPresets();
+    status(`Imported ${names.length} preset${names.length === 1 ? '' : 's'}.`);
+  } catch (err) {
+    status(`Could not import that file: ${err.message}`, true);
+  }
+});
 
 function startLearn(id) {
   learning = learning === id ? null : id;

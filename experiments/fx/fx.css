@@ -19,3 +19,13 @@
 /* ?output: the picture alone */
 body.output #panel, body.output #hud { display: none !important; }
 body.output #view { cursor: none; }
+
+.presets button { position: relative; }
+.presets .x { position: absolute; top: 0; right: 3px; color: var(--dim); padding: 0 2px; }
+.presets .x:hover { color: var(--accent); }
+.save-preset { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+#save-form { display: flex; gap: 6px; flex: 1; }
+#save-form[hidden] { display: none; }
+#preset-name { flex: 1; min-width: 0; font: inherit; color: var(--fg); background: #000; border: 1px solid var(--line); border-radius: 3px; padding: 3px 6px; }
+.button { font: inherit; color: var(--fg); background: #1c1c20; border: 1px solid var(--line); border-radius: 3px; padding: 3px 8px; cursor: pointer; }
+.button:hover { border-color: var(--fg); }

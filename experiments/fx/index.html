@@ -58,6 +58,16 @@
     <section>
       <h2>Effects</h2>
       <div id="presets" class="presets"></div>
+      <div class="save-preset">
+        <button id="save-preset">Save preset…</button>
+        <span id="save-form" hidden>
+          <input id="preset-name" type="text" maxlength="40" aria-label="Preset name">
+          <button id="save-confirm">Save</button>
+          <button id="save-cancel">Cancel</button>
+        </span>
+      </div>
+      <p class="note">A saved preset keeps the effects, blend, camera, playback and the current photo. Saving under an existing name updates it; × deletes. Presets live in this browser: use Export and Import to move them (for example into the MIDIMap app).</p>
+      <p class="buttons"><button id="export-presets">Export presets</button> <label class="button">Import presets<input type="file" id="import-presets" accept="application/json" hidden></label></p>
       <div id="fx-params"></div>
       <label class="tint-colour">Tint colour <input type="color" id="tint-colour" value="#ff8c33"></label>
       <p class="note">Click <b>learn</b>, then move a MiniLab knob or fader to control that effect. Names follow Drift's look engine where they overlap.</p>
@@ -78,7 +88,7 @@
         <tr><td>↑ ↓</td><td>look up · back to horizon</td></tr>
         <tr><td>1–9, 0 · [ ]</td><td>jump to places · previous/next blend mode · <b>R</b> reverse · <b>H</b> hide this panel · <b>F</b> fullscreen</td></tr>
         <tr><td>S · V</td><td>hold the sun · record video</td></tr>
-        <tr><td>Shift + 1–7</td><td>presets (7 badwater also sets the scene and goes to its photo)</td></tr>
+        <tr><td>Shift + 1–9</td><td>presets (badwater and saved ones also set the scene and go to their photo)</td></tr>
         <tr><td>MiniLab mod strip</td><td>look up (bottom = horizon, top = sky)</td></tr>
         <tr><td>knobs 1 · 2 · 3 · 4</td><td>mix · delay · cut↔dissolve · speed</td></tr>
         <tr><td>main knob · pitch strip</td><td>turn · glance left/right</td></tr>

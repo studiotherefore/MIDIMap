@@ -105,7 +105,11 @@ Each lives in `experiments/<name>/`, is served online at
   (brightness, contrast, saturation, hue, invert, blur, pixelate, smear, tint +
   tint colour, bloom, recall, recall_depth) plus new echo*, grain, posterize,
   instability. Recall is real here: a ring of 15 half-size frames, one per 2 s.
-  Six presets (Shift+1–6). **Hold the sun**: finds the brightest compact spot
+  Presets (Shift+1–9): six built-in looks, "badwater" (the author's saved
+  scene), plus **user presets** saved from the panel (Save preset…; localStorage
+  `midimap.fx.presets.v1`, per site, so online / localhost:8000 / the app each
+  keep their own; Export/Import JSON moves them). A preset may carry `scene`:
+  `settings` (blend/camera/playback keys), `photo` {sequence, image}, `runB`. **Hold the sun**: finds the brightest compact spot
   in each A photo's upper half (256×128 readback; rejects dim or big-bright
   skies) and eases the camera onto it. MIDI learn per effect (localStorage
   `midimap.fx.learn.v1`); guessed defaults for knobs 5–8 = CC 93/18/19/16 and
