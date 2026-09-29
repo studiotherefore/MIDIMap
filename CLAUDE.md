@@ -98,8 +98,27 @@ Each lives in `experiments/<name>/`, is served online at
     source→curve→amount→destination matrix, LOOK-HANDOFF.md) but implement
     fresh as shaders on real pixels. Drift had to fake/remove echo because
     Google's pixels are unreadable; here feedback/echo are directly possible.
-- Next candidates: fx layer (shaders, Drift vocabulary); 360° vs flat
-  perspective collisions; image caching proxy; then recording/editing
+- **3. Effects** (`experiments/fx/`, 2026-09-29): experiment 2 copied (so 2
+  stays frozen) + `fx.js`, a shader chain on the real pixels: scene →
+  echo/feedback (ping-pong, zoom/rotate, blend or trails) → bloom (¼ size) →
+  final grade. Parameter **names and units follow Drift's look destinations**
+  (brightness, contrast, saturation, hue, invert, blur, pixelate, smear, tint +
+  tint colour, bloom, recall, recall_depth) plus new echo*, grain, posterize,
+  instability. Recall is real here: a ring of 15 half-size frames, one per 2 s.
+  Six presets (Shift+1–6). **Hold the sun**: finds the brightest compact spot
+  in each A photo's upper half (256×128 readback; rejects dim or big-bright
+  skies) and eases the camera onto it. MIDI learn per effect (localStorage
+  `midimap.fx.learn.v1`); guessed defaults for knobs 5–8 = CC 93/18/19/16 and
+  faders 2–4 = CC 83/85/17 (Arturia factory numbers, unverified on the
+  author's unit). **Record**: `canvas.captureStream(60)` + MediaRecorder →
+  H.264 MP4 at canvas size, 24 Mbps, picture only; saved to Downloads.
+  The blend renderer gained an optional off-screen target and `fitCanvas()`.
+- **Syphon** is the next build (author asked): a browser can't publish
+  Syphon, so plan a small Electron app wrapping the experiments with
+  `node-syphon` (benoitlahoz/node-syphon, maintained 2026) publishing a
+  "MIDIMap" source. The author has MadMapper 5 and 6 and OBS.
+- Next candidates after that: 360° vs flat perspective collisions; image
+  caching proxy (Mapillary's licence allows it); then recording/editing
   approaches, one experiment each.
 
 ## Run and test

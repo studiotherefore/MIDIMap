@@ -100,19 +100,34 @@ export class PanoBlend {
     L.since = performance.now();
   }
 
-  clearLayer(name) {
-    this.layers[name].has = false;
-  }
-
-  // view: { yaw, pitch, fov } in degrees; blend: { mode, mix }; dissolveMs: 0 = hard cut.
-  render({ yaw, pitch, fov }, { mode, mix }, dissolveMs) {
-    const gl = this.gl;
+  // Match the canvas's pixel size to its size on screen; returns [width, height].
+  fitCanvas() {
     const c = this.canvas;
     const w = Math.round(c.clientWidth * devicePixelRatio);
     const h = Math.round(c.clientHeight * devicePixelRatio);
     if (c.width !== w || c.height !== h) {
       c.width = w;
       c.height = h;
+    }
+    return [w, h];
+  }
+
+  clearLayer(name) {
+    this.layers[name].has = false;
+  }
+
+  // view: { yaw, pitch, fov } in degrees; blend: { mode, mix }; dissolveMs: 0 = hard cut.
+  // target: optional { fbo, w, h } to draw off screen (e.g. into an effects chain).
+  render({ yaw, pitch, fov }, { mode, mix }, dissolveMs, target = null) {
+    const gl = this.gl;
+    let w;
+    let h;
+    if (target) {
+      ({ w, h } = target);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, target.fbo);
+    } else {
+      [w, h] = this.fitCanvas();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     }
     gl.viewport(0, 0, w, h);
     gl.useProgram(this.prog);
