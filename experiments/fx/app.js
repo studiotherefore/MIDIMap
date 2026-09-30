@@ -9,6 +9,7 @@ import { readToken, makeGraph, TILES, imagesNearFromTiles, bearing, distance, Ru
 import { PanoBlend, BLEND_MODES } from '../blend/renderer.js';
 import { FxChain, PARAMS, PRESETS, neutralLook } from './fx.js';
 import { PresetSync } from '../lib/presets-sync.js';
+import { Kick, KICKS } from './kick.js';
 import { DEFAULT_LOCATIONS } from '../../js/locations.js';
 
 const $ = (s) => document.querySelector(s);
@@ -36,6 +37,7 @@ const graph = makeGraph(token);
 const renderer = new PanoBlend($('#view'));
 const fx = new FxChain(renderer.gl);
 const look = neutralLook();
+const kick = new Kick();
 
 // ---- state ----------------------------------------------------------------------
 
@@ -50,7 +52,7 @@ const S = {
 let shown = { a: null, b: null };  // photo ids currently on each layer
 let lastStep = 0;
 let stalledSince = 0;
-window.blend = { S, renderer, fx, look }; // for inspecting from the console
+window.blend = { S, renderer, fx, look, kick }; // for inspecting from the console
 
 // ---- photos -----------------------------------------------------------------------
 
@@ -191,9 +193,11 @@ const STEPS_PER_BEAT = [0.25, 0.5, 1, 2, 4];
 const beatMs = () => 60000 / S.bpm;
 const stepMs = () => beatMs() / S.stepsPerBeat;
 const stepDuration = () => (S.tempo ? stepMs() : 1000 / S.fps);
+const followingNote = () => { status('The tempo follows the external MIDI clock. C switches back to the internal clock.'); sync(); };
 
 // Change the tempo without jumping the beat: keep the current position within the beat.
 function setBpm(bpm) {
+  if (external()) return followingNote();
   const now = performance.now();
   const phase = ((now - clock.origin) / beatMs()) % 1;
   S.bpm = Math.max(20, Math.min(300, Math.round(bpm * 10) / 10));
@@ -210,6 +214,7 @@ function setStepsPerBeat(spb) {
 
 // Tap tempo: average the last few taps; the latest tap becomes the downbeat.
 function tap() {
+  if (external()) return followingNote();
   const now = performance.now();
   const taps = clock.taps;
   if (taps.length && now - taps[taps.length - 1] > 2000) taps.length = 0;
@@ -231,15 +236,171 @@ function toggleTempo() {
   sync();
 }
 
+// ---- external MIDI clock ----------------------------------------------------------------
+// Follows a drum machine, DAW or sequencer sending MIDI clock: 24 pulses (0xF8)
+// per beat. The BPM comes from the pulse spacing (averaged over two beats) and
+// every 24th pulse is a beat. Locked to the tempo, photo steps land on pulses
+// (every 24 / steps-per-beat), so they follow tempo changes at once. Start (0xFA)
+// goes to beat 1 and plays, Continue (0xFB) plays on from the song position
+// (0xF2), Stop (0xFC) pauses. If the pulses stop, the internal clock carries on
+// at the last tempo. Clock source is kept in this browser (it's the rig, not a look).
+
+const CLOCK_KEY = 'midimap.fx.clock.v1';
+const PULSES = 24;
+const LOST_MS = 500; // no pulse for this long: the clock has gone (at 20 BPM a pulse comes every 125 ms)
+Object.assign(clock, { source: 'internal', pulses: 0, times: [], lastPulse: 0, input: null, inputName: '', lost: false, running: true });
+try {
+  if (localStorage.getItem(CLOCK_KEY) === 'external') clock.source = 'external';
+} catch {
+  /* internal */
+}
+
+// True while pulses are arriving and the external clock is chosen.
+const external = (now = performance.now()) => clock.source === 'external' && clock.lastPulse > 0 && now - clock.lastPulse < LOST_MS;
+
+// Back to the internal clock, carrying on from the last beat at the last tempo.
+function dropExternal(now) {
+  clock.lastPulse = 0;
+  clock.times.length = 0;
+  clock.pulses = 0;
+  clock.input = null;
+  clock.lastStep = Math.floor((now - clock.origin) / stepMs());
+  sync();
+}
+
+function setClockSource(source) {
+  const now = performance.now();
+  if (clock.source === 'external') dropExternal(now);
+  clock.source = source;
+  clock.lost = false;
+  if (source === 'external') S.tempo = true;
+  try {
+    localStorage.setItem(CLOCK_KEY, source);
+  } catch {
+    /* this session only */
+  }
+  sync();
+}
+
+// System real-time and song position messages. t: when the message arrived; src: { id, name } of the input.
+function onClock([st, a, b], t, src) {
+  if (clock.source !== 'external') return;
+  const mine = !external(t) || src.id === clock.input; // one clock at a time: the first input that pulses
+  if (!mine) return;
+  if (st === 0xf8) {
+    const arrived = !external(t);
+    if (arrived) {
+      // A device that never sends Start/Stop counts as running.
+      Object.assign(clock, { input: src.id, inputName: src.name, lost: false, running: true });
+      clock.times.length = 0;
+    }
+    clock.lastPulse = t;
+    if (arrived) sync();
+    const times = clock.times;
+    times.push(t);
+    if (times.length > 2 * PULSES + 1) times.shift();
+    if (times.length >= 7) {
+      const bpm = 60000 / (((t - times[0]) / (times.length - 1)) * PULSES);
+      // Only show a change of 0.2 BPM or more, so USB timing jitter doesn't make the number flicker.
+      if (Math.abs(bpm - S.bpm) >= 0.2) {
+        S.bpm = Math.max(20, Math.min(300, Math.round(bpm * 10) / 10));
+        sync();
+      }
+    }
+    // Stopped devices usually keep pulsing; the song position only moves while running.
+    if (!clock.running) return;
+    if (clock.pulses % PULSES === 0) clock.origin = t;
+    if (S.playing && S.tempo && clock.pulses % (PULSES / S.stepsPerBeat) === 0) advance(t);
+    clock.pulses++;
+  } else if (st === 0xfa) {
+    clock.pulses = 0; // the next pulse is beat 1
+    clock.running = true;
+    S.playing = true;
+    sync();
+  } else if (st === 0xfb) {
+    clock.running = true;
+    S.playing = true;
+    sync();
+  } else if (st === 0xfc) {
+    clock.running = false;
+    clock.lastStep = Math.floor((t - clock.origin) / stepMs());
+    S.playing = false;
+    sync();
+  } else if (st === 0xf2) {
+    clock.pulses = ((b << 7) | a) * 6; // song position counts sixteenth notes
+  }
+}
+
+// When the next beat falls after time t: from the pulses while an external clock
+// runs (so beat 1 after Start is right), otherwise from the internal grid.
+function beatAfter(t) {
+  const bm = beatMs();
+  let b;
+  if (external() && clock.running) {
+    const next = Math.ceil(clock.pulses / PULSES) * PULSES; // pulse number of the next beat
+    b = clock.lastPulse + (next - clock.pulses + 1) * (bm / PULSES);
+  } else {
+    b = clock.origin + Math.ceil((t - clock.origin) / bm) * bm;
+  }
+  while (b <= t) b += bm;
+  return b;
+}
+
+// ---- reference kick ---------------------------------------------------------------------
+// A kick on every beat while playing, to hear the photo changes against (kick.js).
+// K: off → 808 → 909 → off. Volume and offset are kept in this browser; only the
+// control window sounds (outputs stay silent). A worker keeps time, since a page's
+// own timers slow to once a second when its window is hidden.
+
+const KICK_KEY = 'midimap.fx.kick.v1';
+try {
+  const saved = JSON.parse(localStorage.getItem(KICK_KEY)) || {};
+  if (typeof saved.volume === 'number') kick.volume = saved.volume;
+  if (typeof saved.offset === 'number') kick.offset = saved.offset;
+} catch {
+  /* defaults */
+}
+const saveKick = () => {
+  try {
+    localStorage.setItem(KICK_KEY, JSON.stringify({ volume: kick.volume, offset: kick.offset }));
+  } catch {
+    /* this session only */
+  }
+};
+
+function setKick(type) {
+  kick.type = type;
+  if (type !== 'off') {
+    kick.start();
+    kick.reset();
+    if (!S.tempo) toggleTempo();
+  }
+  sync();
+}
+
+if (!OUTPUT) {
+  const ticker = new Worker(URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 25)'], { type: 'text/javascript' })));
+  ticker.onmessage = () => {
+    if (S.playing) kick.schedule(beatAfter, beatMs());
+    else kick.reset();
+  };
+}
+
 function tick(now) {
   const dt = Math.min(0.1, (now - lastFrame) / 1000);
   lastFrame = now;
+  if (clock.source === 'external' && clock.lastPulse && now - clock.lastPulse >= LOST_MS) {
+    clock.lost = true;
+    dropExternal(now);
+  }
   if (S.runA && S.runA.length) {
     if (S.playing && S.tempo) {
       // Locked to the tempo: step exactly on the grid. A step whose photos
       // aren't loaded yet is skipped, never delayed, so it stays on the beat.
+      // (With an external clock running, the pulses step instead: see onClock.
+      // Space while the device is stopped plays on this grid at the device's tempo.)
       const k = Math.floor((now - clock.origin) / stepMs());
-      if (k !== clock.lastStep) {
+      if (!(external(now) && clock.running) && k !== clock.lastStep) {
         clock.lastStep = k;
         advance(now);
       }
@@ -303,11 +464,22 @@ function hud(now) {
   }
   $('#hud-b').textContent = b;
   $('#hud-buffer').textContent = A ? `buffered ${buffered()} frames ahead` : '';
-  $('#hud-tempo').textContent = S.tempo ? `♩ ${S.bpm} · ${spbLabel(S.stepsPerBeat)}` : '';
+  const ext = external(now);
+  const kickLabel = kick.type === 'off' ? '' : ` · ${kick.type} kick`;
+  $('#hud-tempo').textContent = S.tempo ? `♩ ${S.bpm}${ext ? ' MIDI clock' : ''} · ${spbLabel(S.stepsPerBeat)}${kickLabel}` : '';
+  $('#clock-status').textContent = clockStatus(ext);
+  $('#clock-status').classList.toggle('error', clock.source === 'external' && !ext);
   $('#hud-wait').textContent = stalledSince && now - stalledSince > 400 ? 'waiting for photos…' : '';
 }
 
 const day = (ms) => new Date(ms).toISOString().slice(0, 10);
+
+function clockStatus(ext) {
+  if (clock.source === 'internal') return 'Internal clock. C follows an external MIDI clock instead.';
+  if (ext) return `Following MIDI clock from ${clock.inputName}: ${S.bpm} BPM${S.playing ? '' : ', stopped (Start on the device plays)'}.`;
+  if (clock.lost) return `MIDI clock stopped arriving: carrying on with the internal clock at ${S.bpm} BPM until it's back.`;
+  return 'Waiting for MIDI clock: start your drum machine, DAW or sequencer (set to send clock to this Mac). Until then the internal clock runs.';
+}
 
 // How many upcoming frames (both layers) are already downloaded.
 function buffered() {
@@ -562,6 +734,9 @@ function sync() {
   $('#tempo').checked = S.tempo;
   if (document.activeElement !== $('#bpm')) $('#bpm').value = S.bpm;
   $('#spb').value = String(S.stepsPerBeat);
+  $('#clock-source').value = clock.source;
+  $('#kick-type').value = kick.type;
+  $('#bpm').disabled = $('#tap').disabled = external();
   $('#fps').disabled = S.tempo;
   $('#mix').value = S.mix;
   $('#smooth').value = S.smooth;
@@ -600,7 +775,13 @@ for (const r of document.querySelectorAll('input[name=bmode]')) {
   });
 }
 
-const togglePlay = () => { S.playing = !S.playing; lastStep = 0; sync(); };
+// Playing starts on the next step of the tempo grid, not with an off-beat step straight away.
+const togglePlay = () => {
+  S.playing = !S.playing;
+  lastStep = 0;
+  clock.lastStep = Math.floor((performance.now() - clock.origin) / stepMs());
+  sync();
+};
 const step = (d) => { if (S.runA) { S.index = (S.index + d + S.runA.length) % S.runA.length; prefetch(S.index); } };
 $('#play').addEventListener('click', togglePlay);
 $('#reverse').addEventListener('click', () => { S.dir = -S.dir; shown.b = null; sync(); });
@@ -625,6 +806,8 @@ window.addEventListener('keydown', (e) => {
   else if (/^Digit[1-8]$/.test(e.code)) goSlot(+e.code.slice(5));
   else if (e.code === 'KeyT') tap();
   else if (e.code === 'KeyB') toggleTempo();
+  else if (e.code === 'KeyC') setClockSource(clock.source === 'external' ? 'internal' : 'external');
+  else if (e.code === 'KeyK') setKick(KICKS[(KICKS.indexOf(kick.type) + 1) % KICKS.length]);
   else if (e.code === 'Minus' || e.code === 'Equal') setBpm(S.bpm + (e.code === 'Equal' ? 1 : -1) * (e.shiftKey ? 5 : 1));
   else if (e.code === 'Comma' || e.code === 'Period') {
     const i = STEPS_PER_BEAT.indexOf(S.stepsPerBeat) + (e.code === 'Period' ? 1 : -1);
@@ -651,7 +834,8 @@ $('#view').addEventListener('wheel', (e) => { e.preventDefault(); S.fov = Math.m
 
 // ---- MIDI (fixed mapping for the Arturia MiniLab 3) -------------------------------------
 
-function onMidi([st, a, b]) {
+function onMidi([st, a, b], t = performance.now(), src = { id: '', name: 'MIDI' }) {
+  if (st >= 0xf0) return onClock([st, a, b], t, src);
   const type = st & 0xf0;
   if (type === 0xb0 && fxMidi(`${(st & 0x0f) + 1}:${a}`, b)) return;
   if (type === 0xb0) {
@@ -685,7 +869,7 @@ if (OUTPUT) {
       const names = [];
       for (const input of access.inputs.values()) {
         if (input.state === 'disconnected') continue;
-        input.onmidimessage = (m) => onMidi(m.data);
+        input.onmidimessage = (m) => onMidi(m.data, m.timeStamp || performance.now(), input);
         names.push(input.name);
       }
       $('#midi-status').textContent = names.length ? `MIDI: ${names.join(', ')}` : 'MIDI: no controller connected (keyboard and mouse still work)';
@@ -700,6 +884,7 @@ if (OUTPUT) {
 // ---- effects panel, presets and MIDI learn ------------------------------------------------
 
 const rows = new Map(); // param id -> { row, input, val, bound }
+const extras = new Map(); // learnable controls outside the look (kick): id -> { row, input, val, bound, p, get, set }
 const LEARN_KEY = 'midimap.fx.learn.v1';
 // Guessed defaults: Arturia's factory numbers for knobs 5–8 and faders 2–4. Learn overrides them.
 let fxBindings = { '1:93': 'echo', '1:18': 'bloom', '1:19': 'recall', '1:16': 'tint', '1:83': 'blur', '1:85': 'smear', '1:17': 'grain' };
@@ -731,6 +916,20 @@ function buildEffects() {
     box.append(row);
     rows.set(p.id, { row, input, val: row.querySelector('.val'), bound: row.querySelector('.bound'), p });
   }
+  const kickRow = (id, label, p, get, set, unit = '') => {
+    const row = document.createElement('div');
+    row.className = 'fx-row';
+    row.innerHTML = `<div class="name"><span>${label}</span><span class="bound"></span></div>` +
+      `<input type="range" min="${p.min}" max="${p.max}" step="${p.step}"><span class="val"></span><button>learn</button>`;
+    const input = row.querySelector('input');
+    input.addEventListener('input', () => { set(+input.value); refreshEffects(); });
+    input.addEventListener('dblclick', () => { set(p.neutral); refreshEffects(); });
+    row.querySelector('button').addEventListener('click', () => startLearn(id));
+    $('#kick-params').append(row);
+    extras.set(id, { row, input, val: row.querySelector('.val'), bound: row.querySelector('.bound'), p: { ...p, unit }, get, set });
+  };
+  kickRow('kick.volume', 'kick volume', { min: 0, max: 1, step: 0.01, neutral: 0.5 }, () => kick.volume, (v) => { kick.setVolume(v); saveKick(); });
+  kickRow('kick.offset', 'kick offset (+ = later)', { min: -250, max: 250, step: 5, neutral: 0 }, () => kick.offset, (v) => { kick.offset = v; saveKick(); }, ' ms');
   renderPresets();
   $('#tint-colour').addEventListener('input', (e) => {
     const hex = e.target.value;
@@ -751,6 +950,13 @@ function refreshEffects() {
     r.input.value = look[id];
     r.val.textContent = fmt(r.p, look[id]);
     r.row.classList.toggle('changed', look[id] !== r.p.neutral);
+    r.row.classList.toggle('learning', learning === id);
+    r.bound.textContent = learning === id ? 'move a control…' : (byParam[id] || []).map((k) => `CC ${k.split(':')[1]}`).join(', ');
+  }
+  for (const [id, r] of extras) {
+    r.input.value = r.get();
+    r.val.textContent = fmt(r.p, r.get()) + r.p.unit;
+    r.row.classList.toggle('changed', r.get() !== r.p.neutral);
     r.row.classList.toggle('learning', learning === id);
     r.bound.textContent = learning === id ? 'move a control…' : (byParam[id] || []).map((k) => `CC ${k.split(':')[1]}`).join(', ');
   }
@@ -1035,6 +1241,13 @@ function fxMidi(key, value) {
   }
   const id = fxBindings[key];
   if (!id) return false;
+  const x = extras.get(id);
+  if (x) {
+    x.set(x.p.min + Math.round(((value / 127) * (x.p.max - x.p.min)) / x.p.step) * x.p.step);
+    refreshEffects();
+    return true;
+  }
+  if (!rows.has(id)) return false;
   const p = rows.get(id).p;
   setParam(id, p.step >= 1 && p.max === 1 ? Math.round(value / 127) : p.min + (value / 127) * (p.max - p.min));
   return true;
@@ -1067,9 +1280,11 @@ function toggleRecord() {
     recorder.stop();
     return;
   }
-  const types = ['video/mp4;codecs=avc1.640033', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+  // The picture plus the kick (a silent track while the kick is off).
+  const types = ['video/mp4;codecs=avc1.640033,mp4a.40.2', 'video/mp4;codecs=avc1.640033,opus', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
   const mimeType = types.find((t) => MediaRecorder.isTypeSupported(t));
   const stream = $('#view').captureStream(60);
+  for (const track of kick.start().stream.getAudioTracks()) stream.addTrack(track);
   const chunks = [];
   recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 24e6 });
   recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
@@ -1147,4 +1362,8 @@ $('#tempo').addEventListener('change', toggleTempo);
 $('#bpm').addEventListener('change', (e) => setBpm(+e.target.value || S.bpm));
 $('#tap').addEventListener('click', tap);
 $('#spb').addEventListener('change', (e) => setStepsPerBeat(+e.target.value));
+$('#clock-source').addEventListener('change', (e) => { setClockSource(e.target.value); e.target.blur(); });
+$('#kick-type').addEventListener('change', (e) => { setKick(e.target.value); e.target.blur(); });
+window.blend.clock = clock;
+window.blend.onMidi = onMidi; // lets a page feed in a fake clock for testing
 sync();

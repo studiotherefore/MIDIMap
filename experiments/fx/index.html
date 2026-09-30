@@ -61,7 +61,22 @@
           <button id="tap" title="T">Tap</button>
           <select id="spb" aria-label="Steps per beat"></select>
         </div>
-        <p class="note">Internal clock. Following an external MIDI clock comes later.</p>
+        <div class="tempo-row">
+          <label>Clock <select id="clock-source" title="C">
+            <option value="internal">internal</option>
+            <option value="external">external MIDI clock</option>
+          </select></label>
+        </div>
+        <p class="note" id="clock-status">Internal clock.</p>
+        <div class="tempo-row">
+          <label>Kick <select id="kick-type" title="K">
+            <option value="off">off</option>
+            <option value="808">808</option>
+            <option value="909">909</option>
+          </select></label>
+        </div>
+        <div id="kick-params"></div>
+        <p class="note">A reference kick on every beat while playing, to hear the photo changes against. It's included in recorded videos. If it sounds early or late through your speakers or projector, move <b>kick offset</b> until it lines up.</p>
       </div>
       <label>Field of view <input type="range" id="fov" min="30" max="130" value="90"></label>
       <label><input type="checkbox" id="follow" checked> face the direction of travel</label>
@@ -97,7 +112,7 @@
     <section>
       <h2>Capture</h2>
       <p class="buttons"><button id="record">● Record video</button> <button id="output-window" hidden>Open output window</button></p>
-      <p class="note" id="record-note">Records only the picture (no panel, no cursor) to a video file in your Downloads folder. <b>V</b> starts and stops. <b>Open output window</b> shows the picture alone in a separate window (drag it to a projector, then press F there for fullscreen); it follows this one.</p>
+      <p class="note" id="record-note">Records only the picture (no panel, no cursor) to a video file in your Downloads folder. <b>V</b> starts and stops; the kick is recorded too. <b>Open output window</b> shows the picture alone in a separate window (drag it to a projector, then press F there for fullscreen); it follows this one.</p>
     </section>
 
     <section>
@@ -110,6 +125,8 @@
         <tr><td>1–8 · Option+1–8</td><td>go to a place slot · store the playing photo in it</td></tr>
         <tr><td>T · B</td><td>tap tempo · lock frame changes to the tempo on/off</td></tr>
         <tr><td>− = · , .</td><td>BPM down/up (Shift: by 5) · fewer/more steps per beat</td></tr>
+        <tr><td>C</td><td>clock: internal ↔ follow an external MIDI clock (a drum machine, DAW or sequencer sets the BPM; its Start/Stop play and pause)</td></tr>
+        <tr><td>K</td><td>kick on the beat: off → 808 → 909 → off (volume and offset under Playback; <b>learn</b> puts them on a knob)</td></tr>
         <tr><td>[ ]</td><td>previous/next blend mode · <b>R</b> reverse · <b>H</b> hide this panel · <b>F</b> fullscreen</td></tr>
         <tr><td>S · V</td><td>hold the sun · record video</td></tr>
         <tr><td>Shift + 1–9</td><td>presets (badwater and saved ones also set the scene and go to their photo)</td></tr>

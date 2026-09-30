@@ -128,6 +128,33 @@ stay frozen (experiment 3 started as a copy of 2).
     ¼, ½, 1, 2, 4). With `S.tempo` on, photo steps land exactly on the grid; a
     step whose photos aren't ready is skipped, never delayed. T tap, B lock,
     − = BPM, , . steps per beat, beat light. Measured 500 ms ±1 at 120 BPM.
+  - **External MIDI clock** (C, or the Clock menu; choice kept in localStorage
+    `midimap.fx.clock.v1`): `onClock` follows 0xF8 pulses (BPM from the
+    spacing over 2 beats, shown only on a change ≥ 0.2; every 24th pulse sets
+    `clock.origin`); locked to tempo, photo steps happen *on pulses*
+    (every 24 / stepsPerBeat), so tempo changes apply at once. Start = beat 1 +
+    play, Stop = pause (song position freezes, pulses still measure BPM),
+    Continue, song position (0xF2). First input that pulses wins. No pulse for
+    500 ms → internal clock carries on at the last BPM. BPM field/Tap/−=
+    are locked while following. Space while the device is stopped plays on the
+    internal grid at the device's tempo. `window.blend.onMidi(bytes, t, {id,
+    name})` feeds a fake clock; verified with Playwright at 130/90 BPM: steps
+    exact to 0.1 ms.
+  - **Reference kick** (`kick.js`; K cycles off → 808 → 909): synthesised
+    (Web Audio, no samples), one per beat while playing; turning it on turns
+    tempo lock on. A worker ticks the scheduler every 25 ms (page timers slow
+    when hidden); `beatAfter(t)` predicts beats from the pulses while an
+    external clock runs, else from the grid. `audioTime()` maps via
+    `getOutputTimestamp` (already the *heard* time: don't subtract latency
+    again, that bug silently skipped every kick at 173 ms latency). Two voices:
+    speakers at beat + PICTURE_MS (30) + `offset` (room alignment, ± 250 ms),
+    and a recording voice into `stream` at REC_LEAD_MS (30) early, since the
+    recorded file put sound ~30 ms late. Measured in a real Chrome window
+    (muted): kicks 5–8 ms after the internal step (the screen shows it ~1 frame
+    later), recorded file kick vs cut −12…+18 ms. Volume/offset: localStorage
+    `midimap.fx.kick.v1`, MIDI-learnable (`extras` in the learn code). Only the
+    control window sounds; recordings (V) include it. Play (Space) now starts
+    on the next grid step rather than with an immediate off-beat step.
   - **Presets**: 6 built-in looks + "badwater" (a full scene) + user presets.
     A preset = look values, optional `scene` {`settings` (blend, camera,
     playback, tempo keys: `SCENE_KEYS`), `photo` {sequence, image}, `runB`},
@@ -235,8 +262,8 @@ Browsers, testing and tools:
 
 ## Next steps (the author's direction as of 2026-09-30)
 
-See `HANDOFF.md` for detail. In short: external MIDI clock for the tempo;
-then **recording and editing sequences** as a series of experiments (one
+See `HANDOFF.md` for detail. In short: external MIDI clock for the tempo
+(built 2026-09-29; still to try with a real device); then **recording and editing sequences** as a series of experiments (one
 approach each); slot banks; 360° vs flat "perspective collisions"; a Mapillary
 image cache on Cloudflare (the licence allows it) leading to offline
 performance packs; an offline 4K/ProRes render once sequences exist; sound

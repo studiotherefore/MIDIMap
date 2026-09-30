@@ -51,7 +51,10 @@ https://midimap.studiotherefore.workers.dev. `npm test` passes.
 
 ## Next steps (in the author's order of interest)
 
-1. **External MIDI clock** for the tempo (the author said it can be a later
+1. **External MIDI clock**: built 2026-09-29 (C key; see CLAUDE.md). A
+   reference kick (K: off/808/909) was added 2026-09-30 for demos. Tested
+   with a fake pulse stream only; still to try with a real drum machine / DAW.
+   Original plan, for reference: (the author said it can be a later
    stage; the internal clock is built for it). In experiment 3's `onMidi`,
    handle 0xF8 (24 pulses per beat: derive BPM from pulse spacing, smoothed;
    every 24th pulse is a beat, so set `clock.origin` on it), 0xFA start (reset
