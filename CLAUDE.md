@@ -31,10 +31,10 @@ Cloud settings), give click-by-click steps.
   is taken *before* `.assetsignore` is applied; check with
   `WRANGLER_LOG=debug npx wrangler deploy --dry-run` and "Ignoring asset" lines.
 - **GitHub Pages is retired** (disabled by the author on 2026-09-28); the old
-  github.io address is gone. GitHub is now only the code backup. `main` still
-  holds only an empty initial commit; PR #1 (`claude/gallant-knuth-hvt5w2` →
-  `main`) is still open and the repo's default branch is that claude branch.
-  Work so far was pushed to both `feature/keyboard-controller` and that branch.
+  github.io address is gone. GitHub is only the code backup. **`main` is the
+  canonical branch**: PR #1 was merged into it on 2026-09-30 (d2e1068), so it
+  holds everything. The old branches `claude/gallant-knuth-hvt5w2` and
+  `feature/keyboard-controller` are merged history.
 
 ## Session 2 (2026-09-27, on the author's Mac)
 
@@ -240,7 +240,7 @@ to drive the engine directly.
 
 ## Git
 
-Work on a feature branch. Deploying is separate from git: `npm run deploy`
+Work on `main` or a short-lived branch off it. Deploying is separate from git: `npm run deploy`
 publishes the working folder to Cloudflare, so run the tests and commit first.
 Pushing to GitHub is only the backup; push when the author asks. Git on the
 author's Mac has no stored GitHub login; push with
