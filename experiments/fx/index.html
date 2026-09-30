@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Street FX</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="../blend/style.css">
+  <link rel="stylesheet" href="fx.css">
+  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+</head>
+<body>
+  <canvas id="view"></canvas>
+  <div id="hud"><span id="hud-rec"></span><span id="hud-a"></span><span id="hud-b"></span><span id="hud-buffer"></span><span id="hud-wait"></span></div>
+
+  <aside id="panel">
+    <h1>MIDIMap · Experiment 3: effects</h1>
+    <p id="status" class="note">Loading…</p>
+
+    <section>
+      <h2>Layer A: pick a 360° run</h2>
+      <div id="map"></div>
+      <p class="note">Green lines are 360° runs. Click one to play it. <label>Jump to <select id="jump"></select></label></p>
+      <p id="a-info" class="note"></p>
+    </section>
+
+    <section>
+      <h2>Layer B</h2>
+      <label><input type="radio" name="bmode" value="delay" checked> same run, delayed by <b id="delay-val">8</b> frames</label>
+      <input type="range" id="delay" min="0" max="40" value="8">
+      <label><input type="radio" name="bmode" value="run"> another 360° run on this street:</label>
+      <ol id="runs"></ol>
+      <label><input type="radio" name="bmode" value="off"> off</label>
+    </section>
+
+    <section>
+      <h2>Blend</h2>
+      <div id="modes" class="modes"></div>
+      <label>Mix <input type="range" id="mix" min="0" max="1" step="0.01" value="0.5"></label>
+      <label>Frame changes: cut ↔ dissolve <input type="range" id="smooth" min="0" max="1" step="0.01" value="0"></label>
+    </section>
+
+    <section>
+      <h2>Playback</h2>
+      <p class="buttons">
+        <button id="play">Play</button>
+        <button id="reverse">Direction: forward</button>
+        <button id="sky">Look up</button>
+        <button id="horizon">Horizon</button>
+        <button id="sun">Hold the sun: off</button>
+      </p>
+      <label>Speed <b id="fps-val">3</b> frames/s <input type="range" id="fps" min="0.5" max="12" step="0.5" value="3"></label>
+      <label>Field of view <input type="range" id="fov" min="30" max="130" value="90"></label>
+      <label><input type="checkbox" id="follow" checked> face the direction of travel</label>
+      <label><input type="checkbox" id="sharp"> sharper photos (2048 px; Mapillary is slow, so expect waits)</label>
+    </section>
+
+    <section>
+      <h2>Effects</h2>
+      <div id="presets" class="presets"></div>
+      <div class="save-preset">
+        <button id="save-preset">Save preset…</button>
+        <span id="save-form" hidden>
+          <input id="preset-name" type="text" maxlength="40" aria-label="Preset name">
+          <button id="save-confirm">Save</button>
+          <button id="save-cancel">Cancel</button>
+        </span>
+      </div>
+      <p class="note">A saved preset keeps the effects, blend, camera, playback and the current photo. Saving under an existing name updates it; × deletes.</p>
+      <div class="sync">
+        <p id="sync-status" class="note">Presets sync: checking…</p>
+        <p class="buttons">
+          <button id="copy-key" hidden>Copy sync key</button>
+          <span id="key-form" hidden><input id="sync-key" type="password" placeholder="paste the sync key" aria-label="Sync key"> <button id="use-key">Use key</button></span>
+          <button id="forget-key" hidden>Forget key</button>
+        </p>
+      </div>
+      <p class="buttons"><button id="export-presets">Export presets</button> <label class="button">Import presets<input type="file" id="import-presets" accept="application/json" hidden></label></p>
+      <div id="fx-params"></div>
+      <label class="tint-colour">Tint colour <input type="color" id="tint-colour" value="#ff8c33"></label>
+      <p class="note">Click <b>learn</b>, then move a MiniLab knob or fader to control that effect. Names follow Drift's look engine where they overlap.</p>
+    </section>
+
+    <section>
+      <h2>Capture</h2>
+      <p class="buttons"><button id="record">● Record video</button> <button id="output-window" hidden>Open output window</button></p>
+      <p class="note" id="record-note">Records only the picture (no panel, no cursor) to a video file in your Downloads folder. <b>V</b> starts and stops. <b>Open output window</b> shows the picture alone in a separate window (drag it to a projector, then press F there for fullscreen); it follows this one.</p>
+    </section>
+
+    <section>
+      <h2>Controls</h2>
+      <p class="note" id="midi-status">MIDI: starting…</p>
+      <table class="keys">
+        <tr><td>Drag</td><td>look around</td></tr>
+        <tr><td>Space · ← →</td><td>play/pause · step a frame</td></tr>
+        <tr><td>↑ ↓</td><td>look up · back to horizon</td></tr>
+        <tr><td>1–9, 0 · [ ]</td><td>jump to places · previous/next blend mode · <b>R</b> reverse · <b>H</b> hide this panel · <b>F</b> fullscreen</td></tr>
+        <tr><td>S · V</td><td>hold the sun · record video</td></tr>
+        <tr><td>Shift + 1–9</td><td>presets (badwater and saved ones also set the scene and go to their photo)</td></tr>
+        <tr><td>MiniLab mod strip</td><td>look up (bottom = horizon, top = sky)</td></tr>
+        <tr><td>knobs 1 · 2 · 3 · 4</td><td>mix · delay · cut↔dissolve · speed</td></tr>
+        <tr><td>main knob · pitch strip</td><td>turn · glance left/right</td></tr>
+        <tr><td>pads 1–8 · fader 1</td><td>blend modes · field of view</td></tr>
+        <tr><td>MiniLab keys</td><td>step a frame (while paused)</td></tr>
+        <tr><td>knobs 5–8 · faders 2–4</td><td>echo · bloom · recall · tint · blur · smear · grain (if your MiniLab sends Arturia's default numbers; otherwise use <b>learn</b>)</td></tr>
+      </table>
+    </section>
+  </aside>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+name = "midimap"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+
+# Workers Static Assets: the site's files are served from the project folder.
+# .assetsignore keeps everything else (including the local key file) out.
+# The Worker runs first for the key path, so a file there could never be served.
+[assets]
+directory = "."
+binding = "ASSETS"
+run_worker_first = ["/config.local.json"]
+
+# Saved presets (experiments), shared between browsers and the MIDIMap app.
+# Reads are public; writes need the PRESETS_KEY secret (see src/worker.js).
+[[d1_databases]]
+binding = "DB"
+database_name = "midimap-presets"
+database_id = "4994f1bb-6727-4bb1-9069-bb3278c3afb4"
+migrations_dir = "migrations"

@@ -1,0 +1,16 @@
+{
+  "name": "midimap-app",
+  "private": true,
+  "description": "MIDIMap as a Mac app: a control window plus an off-screen output published over Syphon",
+  "main": "main.mjs",
+  "type": "module",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^44.4.5"
+  },
+  "dependencies": {
+    "node-syphon": "^1.5.1"
+  }
+}

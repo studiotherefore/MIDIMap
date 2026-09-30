@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mapillary Explorer</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mapillary-js@4.1.2/dist/mapillary.css">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mapillary-js@4.1.2/dist/mapillary.js"></script>
+</head>
+<body>
+  <header>
+    <h1>MIDIMap · Experiment 1: Mapillary explorer</h1>
+    <label>Jump to <select id="jump"></select></label>
+    <label>Colour by
+      <select id="colour-by">
+        <option value="pano">360° / flat</option>
+        <option value="year">year captured</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="show-pano" checked> 360°</label>
+    <label><input type="checkbox" id="show-flat" checked> flat</label>
+    <span id="legend"></span>
+  </header>
+
+  <main>
+    <div id="map"></div>
+    <div id="viewer"></div>
+    <aside id="info">
+      <p id="status">Loading…</p>
+      <section id="current" hidden>
+        <h2>This photo</h2>
+        <dl id="current-details"></dl>
+      </section>
+      <section id="nearby" hidden>
+        <h2 id="nearby-title">Other captures here</h2>
+        <p class="note">Every capture run with a photo within 15 m of this spot, oldest first. Click one to jump to it.</p>
+        <ol id="nearby-list"></ol>
+      </section>
+    </aside>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

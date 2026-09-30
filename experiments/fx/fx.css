@@ -1,0 +1,37 @@
+.presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-bottom: 8px; }
+.presets button.on { border-color: var(--accent); color: var(--accent); }
+
+.fx-group { color: var(--dim); margin: 10px 0 2px; font-size: 11px; }
+.fx-row { display: grid; grid-template-columns: 1fr 3.2em auto; gap: 6px; align-items: center; margin: 1px 0; }
+.fx-row .name { grid-column: 1 / -1; display: flex; justify-content: space-between; margin-top: 3px; }
+.fx-row .name .bound { color: var(--accent); }
+.fx-row input[type=range] { grid-column: 1; }
+.fx-row .val { text-align: right; color: var(--dim); }
+.fx-row button { padding: 0 6px; font-size: 11px; }
+.fx-row.learning { background: rgba(255, 90, 54, 0.15); }
+.fx-row.changed .name span:first-child { color: var(--fg); }
+.fx-row .name span:first-child { color: var(--dim); }
+.tint-colour { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.tint-colour input { width: 48px; height: 22px; padding: 0; border: 1px solid var(--line); background: none; }
+
+#hud-rec { color: #ff3b30; font-weight: bold; }
+
+/* ?output: the picture alone */
+body.output #panel, body.output #hud { display: none !important; }
+body.output #view { cursor: none; }
+
+.presets button { position: relative; }
+.presets .x { position: absolute; top: 0; right: 3px; color: var(--dim); padding: 0 2px; }
+.presets .x:hover { color: var(--accent); }
+.save-preset { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+#save-form { display: flex; gap: 6px; flex: 1; }
+#save-form[hidden] { display: none; }
+#preset-name { flex: 1; min-width: 0; font: inherit; color: var(--fg); background: #000; border: 1px solid var(--line); border-radius: 3px; padding: 3px 6px; }
+.button { font: inherit; color: var(--fg); background: #1c1c20; border: 1px solid var(--line); border-radius: 3px; padding: 3px 8px; cursor: pointer; }
+.button:hover { border-color: var(--fg); }
+
+.presets button.local { border-style: dashed; }
+.sync { margin-top: 4px; }
+#key-form { display: flex; gap: 6px; flex: 1; }
+#key-form[hidden] { display: none; }
+#sync-key { flex: 1; min-width: 0; font: inherit; color: var(--fg); background: #000; border: 1px solid var(--line); border-radius: 3px; padding: 3px 6px; }

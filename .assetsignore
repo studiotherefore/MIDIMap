@@ -1,0 +1,27 @@
+# Files never uploaded to Cloudflare (.gitignore-style syntax).
+# Only the page itself (index.html, css/, js/) needs to be public.
+
+# Keys and local settings: the key is served from the MAPS_API_KEY secret instead
+*.local.json
+.claude/
+
+# Tooling, tests and notes
+.git/
+.wrangler/
+node_modules/
+tests/
+src/
+scripts/
+package.json
+package-lock.json
+wrangler.toml
+config.example.json
+CLAUDE.md
+README.md
+.gitignore
+.assetsignore
+.DS_Store
+.nojekyll
+app/
+MIDIMap.app/
+migrations/
