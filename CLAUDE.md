@@ -126,6 +126,30 @@ Each lives in `experiments/<name>/`, is served online at
   author's unit). **Record**: `canvas.captureStream(60)` + MediaRecorder →
   H.264 MP4 at canvas size, 24 Mbps, picture only; saved to Downloads.
   The blend renderer gained an optional off-screen target and `fitCanvas()`.
+- **Place slots and tempo** (experiment 3, 2026-09-30):
+  - **Slots**: 8 (one bank; banks later), each a 360° place — a search point
+    `{name, lat, lng}` (nearest playable run) or an exact photo
+    `{name, lat, lng, sequence, image}`. Keys **1–8** go, **Option+1–8** store
+    the playing photo, click a name to rename (contenteditable; shortcuts are
+    ignored while typing). Pads (program changes 0–7) go to slots; blend modes
+    moved to **[ ]** and the panel. localStorage `midimap.fx.slots.v1`; saved
+    in presets as `preset.slots`. Defaults are places with 360° coverage
+    (Pripyat, Nathan Road, Monument Valley have none).
+  - **Tempo**: internal clock (`clock.origin`, `S.bpm`, `S.stepsPerBeat` ∈
+    ¼,½,1,2,4). With `S.tempo` on, photo steps land exactly on the grid; a
+    step whose photos aren't loaded is skipped, never delayed. Keys **T** tap
+    (last tap = downbeat), **B** lock on/off, **− =** BPM ±1 (Shift ±5),
+    **, .** steps per beat; beat light in panel and HUD; knob 4 = BPM when
+    locked. Tempo keys are in presets' scene settings and mirrored to the
+    output. Measured: 500 ms ±1 at 120 BPM, 250 ms at 2 steps per beat.
+    **External MIDI clock is the next stage**: read 0xF8 pulses (24 per beat)
+    and 0xFA/0xFC start/stop in `onMidi`, set `S.bpm` and `clock.origin`.
+- **Keyboard first**: every feature must work from the keyboard; the author may
+  switch MIDI controllers (MiniLab mappings are extras; prefer MIDI learn).
+- **Web/app parity is automatic**: the app loads the same experiment files
+  from the project folder, so every feature lands in both. App-only: Syphon,
+  fixed 1920×1080 output, no MIDI prompts, no background freezing. The
+  original instrument (Google Street View, root page) is web-only.
 - **MIDIMap app with Syphon** (`app/`, 2026-09-29, see app/README.md):
   Electron 44 + node-syphon 1.5. Control window = experiment 3; an off-screen
   window (`offscreen.useSharedTexture`, 1920×1080, `setFrameRate` 30/60 via the

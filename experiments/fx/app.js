@@ -9,7 +9,7 @@ import { readToken, makeGraph, TILES, imagesNearFromTiles, bearing, distance, Ru
 import { PanoBlend, BLEND_MODES } from '../blend/renderer.js';
 import { FxChain, PARAMS, PRESETS, neutralLook } from './fx.js';
 import { PresetSync } from '../lib/presets-sync.js';
-import { DEFAULT_LOCATIONS, SLOTS } from '../../js/locations.js';
+import { DEFAULT_LOCATIONS } from '../../js/locations.js';
 
 const $ = (s) => document.querySelector(s);
 // ?output: a clean picture that mirrors the control window (projector window, or
@@ -17,7 +17,7 @@ const $ = (s) => document.querySelector(s);
 const OUTPUT = new URLSearchParams(location.search).has('output');
 if (OUTPUT) document.body.classList.add('output');
 const MAX_B_METRES = 40;   // don't show another run's photo if it's further than this from layer A
-const START_SLOT = '8';    // Karl-Marx-Allee: ten 360° runs, winter 2021 to spring 2026
+const START_SLOT = 5;      // Karl-Marx-Allee: ten 360° runs, winter 2021 to spring 2026
 // Mapillary's image server is slow and uneven (1–50 s per photo, measured), so
 // buffer well ahead and default to the smaller photos.
 const AHEAD = 30;
@@ -43,6 +43,7 @@ const S = {
   runA: null, runB: null, bMode: 'delay', delay: 8,
   index: 0, playing: false, dir: 1, fps: 3,
   mode: 1, mix: 0.5, smooth: 0, sharp: false,
+  tempo: false, bpm: 120, stepsPerBeat: 1,
   pitch: 0, fov: 90, follow: true, yawOffset: 0, glance: 0, travel: 0,
   sun: false, sunSpot: null, lockYaw: 0, lockPitch: 0,
 };
@@ -165,22 +166,85 @@ function travelHeading(i) {
 
 let lastFrame = performance.now();
 
+// One step along the run, if the next photos (both layers) are ready.
+function advance(now) {
+  const next = (S.index + S.dir + S.runA.length) % S.runA.length;
+  const f = framesFor(next);
+  if (ready(f.a) && ready(f.b)) {
+    S.index = next;
+    lastStep = now;
+    stalledSince = 0;
+    prefetch(next);
+  } else if (!stalledSince) {
+    stalledSince = now;
+    prefetch(next);
+  }
+}
+
+// ---- tempo ----------------------------------------------------------------------------
+// Internal clock: beats at S.bpm from clock.origin; photos change S.stepsPerBeat
+// times per beat when S.tempo is on. Built so an external MIDI clock (24 pulses
+// per beat) can later set bpm and origin instead.
+
+const clock = { origin: performance.now(), lastStep: -1, taps: [] };
+const STEPS_PER_BEAT = [0.25, 0.5, 1, 2, 4];
+const beatMs = () => 60000 / S.bpm;
+const stepMs = () => beatMs() / S.stepsPerBeat;
+const stepDuration = () => (S.tempo ? stepMs() : 1000 / S.fps);
+
+// Change the tempo without jumping the beat: keep the current position within the beat.
+function setBpm(bpm) {
+  const now = performance.now();
+  const phase = ((now - clock.origin) / beatMs()) % 1;
+  S.bpm = Math.max(20, Math.min(300, Math.round(bpm * 10) / 10));
+  clock.origin = now - phase * beatMs();
+  clock.lastStep = Math.floor((now - clock.origin) / stepMs());
+  sync();
+}
+
+function setStepsPerBeat(spb) {
+  S.stepsPerBeat = spb;
+  clock.lastStep = Math.floor((performance.now() - clock.origin) / stepMs());
+  sync();
+}
+
+// Tap tempo: average the last few taps; the latest tap becomes the downbeat.
+function tap() {
+  const now = performance.now();
+  const taps = clock.taps;
+  if (taps.length && now - taps[taps.length - 1] > 2000) taps.length = 0;
+  taps.push(now);
+  if (taps.length > 5) taps.shift();
+  if (taps.length >= 2) {
+    const avg = (taps[taps.length - 1] - taps[0]) / (taps.length - 1);
+    S.bpm = Math.max(20, Math.min(300, Math.round(60000 / avg)));
+    S.tempo = true;
+  }
+  clock.origin = now;
+  clock.lastStep = 0;
+  sync();
+}
+
+function toggleTempo() {
+  S.tempo = !S.tempo;
+  clock.lastStep = Math.floor((performance.now() - clock.origin) / stepMs());
+  sync();
+}
+
 function tick(now) {
   const dt = Math.min(0.1, (now - lastFrame) / 1000);
   lastFrame = now;
   if (S.runA && S.runA.length) {
-    if (S.playing && now - lastStep >= 1000 / S.fps) {
-      const next = (S.index + S.dir + S.runA.length) % S.runA.length;
-      const f = framesFor(next);
-      if (ready(f.a) && ready(f.b)) {
-        S.index = next;
-        lastStep = now;
-        stalledSince = 0;
-        prefetch(next);
-      } else if (!stalledSince) {
-        stalledSince = now;
-        prefetch(next);
+    if (S.playing && S.tempo) {
+      // Locked to the tempo: step exactly on the grid. A step whose photos
+      // aren't loaded yet is skipped, never delayed, so it stays on the beat.
+      const k = Math.floor((now - clock.origin) / stepMs());
+      if (k !== clock.lastStep) {
+        clock.lastStep = k;
+        advance(now);
       }
+    } else if (S.playing && now - lastStep >= 1000 / S.fps) {
+      advance(now);
     }
     const f = framesFor(S.index);
     show('a', f.a);
@@ -206,7 +270,7 @@ function tick(now) {
   }
   const [w, h] = renderer.fitCanvas();
   fx.resize(w, h);
-  renderer.render({ yaw, pitch, fov: S.fov }, { mode: S.mode, mix: S.mix }, S.smooth * (1000 / S.fps), fx.sceneTarget);
+  renderer.render({ yaw, pitch, fov: S.fov }, { mode: S.mode, mix: S.mix }, S.smooth * stepDuration(), fx.sceneTarget);
   fx.render(look, now);
   hud(now);
   requestAnimationFrame(tick);
@@ -214,7 +278,17 @@ function tick(now) {
 requestAnimationFrame(tick);
 
 let hudAt = 0;
+const spbLabel = (spb) => ({ 0.25: '1 step per 4 beats', 0.5: '1 step per 2 beats', 1: '1 step per beat', 2: '2 steps per beat', 4: '4 steps per beat' })[spb];
+
+// The beat light flashes for the first tenth of each beat (checked every frame).
+function beatLight(now) {
+  const on = ((now - clock.origin) % beatMs() + beatMs()) % beatMs() < Math.min(120, beatMs() * 0.3);
+  $('#beat-light').classList.toggle('on', on);
+  $('#hud-beat').classList.toggle('on', on && S.tempo);
+}
+
 function hud(now) {
+  beatLight(now);
   if (now - hudAt < 150) return;
   hudAt = now;
   const A = S.runA;
@@ -229,6 +303,7 @@ function hud(now) {
   }
   $('#hud-b').textContent = b;
   $('#hud-buffer').textContent = A ? `buffered ${buffered()} frames ahead` : '';
+  $('#hud-tempo').textContent = S.tempo ? `♩ ${S.bpm} · ${spbLabel(S.stepsPerBeat)}` : '';
   $('#hud-wait').textContent = stalledSince && now - stalledSince > 400 ? 'waiting for photos…' : '';
 }
 
@@ -327,7 +402,7 @@ map.on('load', () => {
   map.addSource('mly', { type: 'vector', tiles: [`${TILES}?access_token=${encodeURIComponent(token)}`], minzoom: 0, maxzoom: 14 });
   map.addLayer({ id: 'pano-runs', type: 'line', source: 'mly', 'source-layer': 'sequence', filter: ['==', ['get', 'is_pano'], true],
     paint: { 'line-color': '#35d07f', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1, 17, 3] } });
-  if (!OUTPUT) jumpTo(START_SLOT);
+  if (!OUTPUT) goSlot(START_SLOT);
 });
 
 const here = Object.assign(document.createElement('div'), { style: 'width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:14px solid #ff5a36' });
@@ -369,15 +444,102 @@ async function openNear(lngLat, metres, label, moved = false) {
 
 map.on('click', (e) => (map.getZoom() < 14 ? map.easeTo({ center: e.lngLat, zoom: 16 }) : openNear(e.lngLat, 30)));
 
-function jumpTo(slot) {
-  const loc = DEFAULT_LOCATIONS[slot];
-  map.jumpTo({ center: [loc.lng, loc.lat], zoom: 16 });
-  status(`Going to ${loc.name}…`);
-  openNear(loc, 400, loc.name, true);
+// ---- place slots -------------------------------------------------------------------------
+// Eight slots (one bank; more banks can come later). A slot is a 360° place:
+// a search point { name, lat, lng } that finds the nearest run, or an exact
+// photo { name, lat, lng, sequence, image } stored from what's playing.
+// Kept in this browser and saved with presets.
+
+const SLOT_COUNT = 8;
+const SLOTS_KEY = 'midimap.fx.slots.v1';
+const DEFAULT_SLOTS = [
+  { name: 'Times Square, New York', lat: 40.7580, lng: -73.9855 },
+  { name: 'Shibuya Crossing, Tokyo', lat: 35.6595, lng: 139.7005 },
+  { name: 'Piazza San Marco, Venice', lat: 45.4341, lng: 12.3388 },
+  { name: 'Badwater Road, Death Valley', lat: 36.2306, lng: -116.7723, sequence: 'tUm84JCwc2vklEQZ169yrz', image: '1674249717356348' },
+  { name: 'Karl-Marx-Allee, Berlin', lat: 52.5178, lng: 13.4350 },
+  { name: 'Champs-Élysées, Paris', lat: 48.8698, lng: 2.3078 },
+  { name: 'Damrak, Amsterdam', lat: 52.3760, lng: 4.8970 },
+  { name: 'Esplanadi, Helsinki', lat: 60.1675, lng: 24.9480 },
+];
+let slots = (() => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SLOTS_KEY));
+    if (Array.isArray(saved) && saved.length === SLOT_COUNT) return saved;
+  } catch {
+    /* defaults */
+  }
+  return DEFAULT_SLOTS.map((x) => ({ ...x }));
+})();
+let currentSlot = null;
+
+function saveSlots() {
+  try {
+    localStorage.setItem(SLOTS_KEY, JSON.stringify(slots));
+  } catch {
+    /* this session only */
+  }
+  renderSlots();
 }
-$('#jump').replaceChildren(...SLOTS.map((s) => Object.assign(document.createElement('option'), { value: s, textContent: `${s}: ${DEFAULT_LOCATIONS[s].name}` })));
-$('#jump').value = START_SLOT;
-$('#jump').addEventListener('change', () => jumpTo($('#jump').value));
+
+function goSlot(n) {
+  const slot = slots[n - 1];
+  if (!slot) return;
+  currentSlot = n;
+  renderSlots();
+  map.jumpTo({ center: [slot.lng, slot.lat], zoom: 16 });
+  status(`Going to ${slot.name}…`);
+  if (slot.sequence) startRun(slot.sequence, slot.image);
+  else openNear(slot, 400, slot.name, true);
+}
+
+// A short name for a stored place: the nearest known place within 3 km, else coordinates.
+function placeName(at) {
+  const known = [...DEFAULT_SLOTS, ...Object.values(DEFAULT_LOCATIONS), ...slots];
+  const near = known.map((k) => ({ k, m: distance(at, k) })).sort((x, y) => x.m - y.m)[0];
+  const base = near && near.m < 3000 ? near.k.name.split(' · ')[0] : `${at.lat.toFixed(3)}, ${at.lng.toFixed(3)}`;
+  return `${base} · ${day(at.captured_at)}`;
+}
+
+function storeSlot(n) {
+  const a = S.runA && S.runA.at(S.index);
+  if (!a) return status('Nothing playing to store yet.');
+  slots[n - 1] = { name: placeName(a), lat: a.lat, lng: a.lng, sequence: S.runA.id, image: S.runA.ids[S.index] };
+  currentSlot = n;
+  saveSlots();
+  status(`Stored this photo in slot ${n}. Press ${n} to come back to it.`);
+}
+
+function renderSlots() {
+  $('#slots').replaceChildren(...slots.map((slot, i) => {
+    const n = i + 1;
+    const li = document.createElement('li');
+    li.className = n === currentSlot ? 'on' : '';
+    li.innerHTML = `<b>${n}</b><span class="name" contenteditable="true" spellcheck="false" title="Click to rename"></span>` +
+      `<button class="go" title="Key ${n}">go</button><button class="store" title="Option+${n}">store here</button>`;
+    const name = li.querySelector('.name');
+    name.textContent = slot.name + (slot.sequence ? '' : ' (nearest run)');
+    name.addEventListener('focus', () => { name.textContent = slot.name; });
+    name.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); name.blur(); }
+      if (e.key === 'Escape') { name.textContent = slot.name; name.blur(); }
+    });
+    name.addEventListener('blur', () => {
+      const v = name.textContent.trim();
+      if (v && v !== slot.name) { slot.name = v; saveSlots(); } else renderSlots();
+    });
+    li.querySelector('.go').addEventListener('click', () => goSlot(n));
+    li.querySelector('.store').addEventListener('click', () => storeSlot(n));
+    return li;
+  }));
+}
+renderSlots();
+
+function setSlots(list) {
+  if (!Array.isArray(list) || list.length !== SLOT_COUNT) return;
+  slots = list.map((x) => ({ ...x }));
+  saveSlots();
+}
 
 // ---- controls ------------------------------------------------------------------------
 
@@ -397,6 +559,10 @@ function setBMode(mode) {
 
 // Reflect the state in the controls (after MIDI or keyboard changes).
 function sync() {
+  $('#tempo').checked = S.tempo;
+  if (document.activeElement !== $('#bpm')) $('#bpm').value = S.bpm;
+  $('#spb').value = String(S.stepsPerBeat);
+  $('#fps').disabled = S.tempo;
   $('#mix').value = S.mix;
   $('#smooth').value = S.smooth;
   $('#delay').value = S.delay;
@@ -442,7 +608,7 @@ $('#sky').addEventListener('click', () => { S.pitch = 90; });
 $('#horizon').addEventListener('click', () => { S.pitch = 0; });
 
 window.addEventListener('keydown', (e) => {
-  if (e.target.closest('input, select')) return;
+  if (e.target.closest('input, select, [contenteditable]')) return;
   if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
   else if (e.code === 'ArrowRight') step(1);
   else if (e.code === 'ArrowLeft') step(-1);
@@ -455,7 +621,15 @@ window.addEventListener('keydown', (e) => {
   else if (e.code === 'KeyV') toggleRecord();
   else if (e.code === 'Escape') cancelLearn();
   else if (e.shiftKey && /^Digit[1-9]$/.test(e.code)) applyPreset(Object.keys(allPresets())[+e.code.slice(5) - 1]);
-  else if (/^Digit[0-9]$/.test(e.code) && !e.shiftKey) { $('#jump').value = e.code.slice(5); jumpTo(e.code.slice(5)); }
+  else if (e.altKey && /^Digit[1-8]$/.test(e.code)) { e.preventDefault(); storeSlot(+e.code.slice(5)); }
+  else if (/^Digit[1-8]$/.test(e.code)) goSlot(+e.code.slice(5));
+  else if (e.code === 'KeyT') tap();
+  else if (e.code === 'KeyB') toggleTempo();
+  else if (e.code === 'Minus' || e.code === 'Equal') setBpm(S.bpm + (e.code === 'Equal' ? 1 : -1) * (e.shiftKey ? 5 : 1));
+  else if (e.code === 'Comma' || e.code === 'Period') {
+    const i = STEPS_PER_BEAT.indexOf(S.stepsPerBeat) + (e.code === 'Period' ? 1 : -1);
+    setStepsPerBeat(STEPS_PER_BEAT[Math.max(0, Math.min(STEPS_PER_BEAT.length - 1, i))]);
+  }
   else if (e.code === 'BracketLeft' || e.code === 'BracketRight') {
     S.mode = (S.mode + (e.code === 'BracketRight' ? 1 : -1) + BLEND_MODES.length) % BLEND_MODES.length;
     sync();
@@ -486,7 +660,10 @@ function onMidi([st, a, b]) {
     else if (a === 74) S.mix = v;                                // knob 1
     else if (a === 71) { S.delay = Math.round(v * 40); shown.b = null; } // knob 2
     else if (a === 76) S.smooth = v;                             // knob 3
-    else if (a === 77) S.fps = Math.max(0.5, Math.round(v * 24) / 2); // knob 4
+    else if (a === 77) {                                         // knob 4: speed, or BPM when locked to tempo
+      if (S.tempo) setBpm(40 + v * 160);
+      else S.fps = Math.max(0.5, Math.round(v * 24) / 2);
+    }
     else if (a === 114) S.yawOffset += (b - 64) * 3;             // main knob (endless): turn
     else if (a === 82) S.fov = 30 + v * 100;                     // fader 1
     else return;
@@ -494,8 +671,7 @@ function onMidi([st, a, b]) {
   } else if (type === 0xe0) {
     S.glance = (((b << 7) | a) / 16383 - 0.5) * 180;             // pitch strip: glance ±90°, springs back
   } else if (type === 0xc0) {
-    S.mode = a % BLEND_MODES.length;                             // pads 1–8
-    sync();
+    if (a < SLOT_COUNT) goSlot(a + 1);                           // pads 1–8 (program changes): place slots
   } else if (type === 0x90 && b > 0 && !S.playing) {
     step(S.dir);                                                 // keys: step a frame
   }
@@ -587,8 +763,9 @@ let currentPreset = null;
 function applyPreset(name) {
   const preset = allPresets()[name];
   if (!preset) return;
-  const { scene, ...values } = preset;
+  const { scene, slots: presetSlots, ...values } = preset;
   Object.assign(look, neutralLook(), values);
+  if (presetSlots) setSlots(presetSlots);
   if (scene) applyScene(scene);
   currentPreset = name;
   renderPresets();
@@ -613,7 +790,7 @@ async function applyScene({ settings = {}, photo, runB }) {
 
 const REMOTE_CACHE = 'midimap.fx.presets.remote.v1';
 const LOCAL_ONLY = 'midimap.fx.presets.v1';
-const SCENE_KEYS = ['mode', 'mix', 'bMode', 'delay', 'smooth', 'fps', 'dir', 'fov', 'pitch', 'sun', 'follow', 'sharp'];
+const SCENE_KEYS = ['mode', 'mix', 'bMode', 'delay', 'smooth', 'fps', 'dir', 'fov', 'pitch', 'sun', 'follow', 'sharp', 'tempo', 'bpm', 'stepsPerBeat'];
 const presetSync = new PresetSync();
 const readStore = (k) => { try { return JSON.parse(localStorage.getItem(k)) || {}; } catch { return {}; } };
 const writeStore = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage blocked */ } };
@@ -727,6 +904,7 @@ function captureScene() {
   preset.scene = { settings: Object.fromEntries(SCENE_KEYS.map((k) => [k, S[k]])) };
   if (S.runA) preset.scene.photo = { sequence: S.runA.id, image: S.runA.ids[S.index] };
   if (S.bMode === 'run' && S.runB) preset.scene.runB = S.runB.id;
+  preset.slots = slots.map((x) => ({ ...x }));
   return preset;
 }
 
@@ -923,7 +1101,7 @@ setInterval(() => {
 // (same site, any tab or window, or the MIDIMap app's Syphon output) follows it.
 // Each loads its own photos, so the output never waits on the control window's screen.
 
-const MIRROR_KEYS = ['bMode', 'delay', 'dir', 'fps', 'mode', 'mix', 'smooth', 'sharp', 'pitch', 'fov', 'follow', 'yawOffset', 'glance', 'sun'];
+const MIRROR_KEYS = ['bMode', 'delay', 'dir', 'fps', 'mode', 'mix', 'smooth', 'sharp', 'pitch', 'fov', 'follow', 'yawOffset', 'glance', 'sun', 'tempo', 'bpm', 'stepsPerBeat'];
 const channel = new BroadcastChannel('midimap-fx');
 
 if (OUTPUT) {
@@ -962,3 +1140,11 @@ if (OUTPUT) {
     $('#output-window').addEventListener('click', () => window.open('./?output', 'midimap-output', 'width=960,height=540'));
   }
 }
+
+// ---- tempo controls -----------------------------------------------------------------------
+$('#spb').replaceChildren(...STEPS_PER_BEAT.map((v) => Object.assign(document.createElement('option'), { value: String(v), textContent: spbLabel(v) })));
+$('#tempo').addEventListener('change', toggleTempo);
+$('#bpm').addEventListener('change', (e) => setBpm(+e.target.value || S.bpm));
+$('#tap').addEventListener('click', tap);
+$('#spb').addEventListener('change', (e) => setStepsPerBeat(+e.target.value));
+sync();

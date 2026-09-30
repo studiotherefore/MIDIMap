@@ -35,3 +35,17 @@ body.output #view { cursor: none; }
 #key-form { display: flex; gap: 6px; flex: 1; }
 #key-form[hidden] { display: none; }
 #sync-key { flex: 1; min-width: 0; font: inherit; color: var(--fg); background: #000; border: 1px solid var(--line); border-radius: 3px; padding: 3px 6px; }
+
+.slots { list-style: none; padding: 0; margin: 4px 0; }
+.slots li { display: grid; grid-template-columns: 1.4em 1fr auto auto; gap: 6px; align-items: center; padding: 3px 4px; border-top: 1px solid var(--line); }
+.slots li.on { background: rgba(255, 90, 54, 0.15); }
+.slots .name { outline: none; border-bottom: 1px dashed transparent; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slots .name:hover, .slots .name:focus { border-bottom-color: var(--dim); white-space: normal; }
+.slots button { padding: 0 6px; font-size: 11px; }
+.tempo { margin: 8px 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 3px; }
+.tempo-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+#bpm { width: 4.5em; font: inherit; color: var(--fg); background: #000; border: 1px solid var(--line); border-radius: 3px; padding: 2px 4px; }
+#beat-light, #hud-beat { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #2a2a2e; }
+#beat-light.on, #hud-beat.on { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+#hud-beat { background: transparent; }
+input[type=range]:disabled { opacity: 0.35; }

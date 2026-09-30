@@ -11,7 +11,7 @@
 </head>
 <body>
   <canvas id="view"></canvas>
-  <div id="hud"><span id="hud-rec"></span><span id="hud-a"></span><span id="hud-b"></span><span id="hud-buffer"></span><span id="hud-wait"></span></div>
+  <div id="hud"><span id="hud-rec"></span><span id="hud-beat"></span><span id="hud-tempo"></span><span id="hud-a"></span><span id="hud-b"></span><span id="hud-buffer"></span><span id="hud-wait"></span></div>
 
   <aside id="panel">
     <h1>MIDIMap · Experiment 3: effects</h1>
@@ -20,7 +20,10 @@
     <section>
       <h2>Layer A: pick a 360° run</h2>
       <div id="map"></div>
-      <p class="note">Green lines are 360° runs. Click one to play it. <label>Jump to <select id="jump"></select></label></p>
+      <p class="note">Green lines are 360° runs. Click one to play it.</p>
+      <h2>Places (slots 1–8)</h2>
+      <ol id="slots" class="slots"></ol>
+      <p class="note"><b>1–8</b> go to a slot · <b>Option+1–8</b> stores the photo that's playing · click a name to rename. Slots are saved with presets.</p>
       <p id="a-info" class="note"></p>
     </section>
 
@@ -50,6 +53,16 @@
         <button id="sun">Hold the sun: off</button>
       </p>
       <label>Speed <b id="fps-val">3</b> frames/s <input type="range" id="fps" min="0.5" max="12" step="0.5" value="3"></label>
+      <div class="tempo">
+        <label><input type="checkbox" id="tempo"> lock frame changes to the tempo</label>
+        <div class="tempo-row">
+          <span id="beat-light" title="beat"></span>
+          <input type="number" id="bpm" min="20" max="300" step="1" value="120" aria-label="BPM"> BPM
+          <button id="tap" title="T">Tap</button>
+          <select id="spb" aria-label="Steps per beat"></select>
+        </div>
+        <p class="note">Internal clock. Following an external MIDI clock comes later.</p>
+      </div>
       <label>Field of view <input type="range" id="fov" min="30" max="130" value="90"></label>
       <label><input type="checkbox" id="follow" checked> face the direction of travel</label>
       <label><input type="checkbox" id="sharp"> sharper photos (2048 px; Mapillary is slow, so expect waits)</label>
@@ -94,13 +107,16 @@
         <tr><td>Drag</td><td>look around</td></tr>
         <tr><td>Space · ← →</td><td>play/pause · step a frame</td></tr>
         <tr><td>↑ ↓</td><td>look up · back to horizon</td></tr>
-        <tr><td>1–9, 0 · [ ]</td><td>jump to places · previous/next blend mode · <b>R</b> reverse · <b>H</b> hide this panel · <b>F</b> fullscreen</td></tr>
+        <tr><td>1–8 · Option+1–8</td><td>go to a place slot · store the playing photo in it</td></tr>
+        <tr><td>T · B</td><td>tap tempo · lock frame changes to the tempo on/off</td></tr>
+        <tr><td>− = · , .</td><td>BPM down/up (Shift: by 5) · fewer/more steps per beat</td></tr>
+        <tr><td>[ ]</td><td>previous/next blend mode · <b>R</b> reverse · <b>H</b> hide this panel · <b>F</b> fullscreen</td></tr>
         <tr><td>S · V</td><td>hold the sun · record video</td></tr>
         <tr><td>Shift + 1–9</td><td>presets (badwater and saved ones also set the scene and go to their photo)</td></tr>
         <tr><td>MiniLab mod strip</td><td>look up (bottom = horizon, top = sky)</td></tr>
-        <tr><td>knobs 1 · 2 · 3 · 4</td><td>mix · delay · cut↔dissolve · speed</td></tr>
+        <tr><td>knobs 1 · 2 · 3 · 4</td><td>mix · delay · cut↔dissolve · speed (BPM when locked to tempo)</td></tr>
         <tr><td>main knob · pitch strip</td><td>turn · glance left/right</td></tr>
-        <tr><td>pads 1–8 · fader 1</td><td>blend modes · field of view</td></tr>
+        <tr><td>pads 1–8 · fader 1</td><td>place slots 1–8 · field of view</td></tr>
         <tr><td>MiniLab keys</td><td>step a frame (while paused)</td></tr>
         <tr><td>knobs 5–8 · faders 2–4</td><td>echo · bloom · recall · tint · blur · smear · grain (if your MiniLab sends Arturia's default numbers; otherwise use <b>learn</b>)</td></tr>
       </table>
