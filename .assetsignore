@@ -17,11 +17,11 @@ package-lock.json
 wrangler.toml
 config.example.json
 CLAUDE.md
+HANDOFF.md
 README.md
 .gitignore
 .assetsignore
 .DS_Store
-.nojekyll
 app/
 MIDIMap.app/
 migrations/

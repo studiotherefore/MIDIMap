@@ -1,4 +1,6 @@
 {
-  "_note": "Copy this file to config.local.json (never committed) and put your Google Maps JavaScript API key below.",
-  "mapsApiKey": ""
+  "_note": "Copy this file to config.local.json (never committed) and fill in the values. mapsApiKey: Google Maps JavaScript API key (the instrument). mapillaryToken: Mapillary client token (the experiments). presetsKey: any long random string; set the same value as the PRESETS_KEY Cloudflare secret to save shared presets.",
+  "mapsApiKey": "",
+  "mapillaryToken": "",
+  "presetsKey": ""
 }
