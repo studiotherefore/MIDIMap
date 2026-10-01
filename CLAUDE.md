@@ -215,6 +215,10 @@ stay frozen (experiment 3 started as a copy of 2).
   (`app/preload.cjs`: displays, openOutput {display, fullscreen},
   closeOutput, toggleOutputFullscreen, syphon, setSyphonFps). F = output full
   screen if open. `?output&app` = the app's own output windows (no hints).
+  Photos are decoded off the main thread (`img.decode()` before "ready") and
+  the sun is looked for once per photo only while hold-the-sun is on: before
+  that, a photo arriving could stall a frame (one 91 ms output lag, one
+  swallowed step); after, 6–15 ms in four runs.
   Equal side panes (`--side` 360px); sliders are a thin line + small square.
   Untested by machine: full screen on a second display (needs a real gesture
   and a second screen); the author's Roland video output appears as a

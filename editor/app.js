@@ -66,6 +66,7 @@ const S = {
   live: true, // L: the output shows the picture (true) or fades to black (false)
 };
 let shown = { a: null, b: null };  // photo ids currently on each layer
+let shownA = null;                 // layer A's photo and compass, for finding the sun on demand
 let lastStep = 0;
 let stalledSince = 0;
 window.blend = { S, renderer, fx, look, kick };
@@ -81,7 +82,8 @@ function photo(url) {
     e = { ready: false, img: null };
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.onload = () => { e.ready = true; e.img = img; };
+    // Decode in the background before it's used, so a new photo never stalls a frame.
+    img.onload = () => img.decode().catch(() => {}).then(() => { e.ready = true; e.img = img; });
     img.onerror = () => images.delete(url);
     img.src = url;
     images.set(url, e);
@@ -123,7 +125,12 @@ function show(name, f) {
   if (!p.ready) return;
   renderer.setImage(name, p.img, d.compass);
   shown[name] = id;
-  if (name === 'a') S.sunSpot = findSun(p.img, d.compass);
+  if (name === 'a') {
+    // Looking for the sun reads the photo's pixels, so it's done once per photo
+    // and only while "hold the sun" is on (see tick).
+    shownA = { img: p.img, compass: d.compass, checked: false };
+    S.sunSpot = null;
+  }
 }
 
 // ---- hold the sun -----------------------------------------------------------------
@@ -434,6 +441,10 @@ function tick(now) {
     const target = S.follow ? travelHeading(S.index) : 0;
     const diff = ((target - S.travel + 540) % 360) - 180;
     S.travel = (S.travel + diff * (1 - Math.exp(-dt * 3)) + 360) % 360;
+  }
+  if (S.sun && shownA && !shownA.checked) {
+    shownA.checked = true;
+    S.sunSpot = findSun(shownA.img, shownA.compass);
   }
   let yaw = S.travel + S.yawOffset + S.glance;
   let pitch = S.pitch;
