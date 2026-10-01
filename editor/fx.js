@@ -119,7 +119,7 @@ uniform sampler2D uSrc, uBloom, uRecall;
 uniform vec2 uRes;
 uniform float uTime, uHasRecall;
 uniform float uBrightness, uContrast, uSaturation, uHue, uInvert, uBlur, uPixelate, uSmear;
-uniform float uTint, uBloomAmt, uRecallAmt, uPosterize, uGrain, uInstability;
+uniform float uTint, uBloomAmt, uRecallAmt, uPosterize, uGrain, uInstability, uFade;
 uniform vec3 uTintColour;
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -175,7 +175,7 @@ void main() {
     col = floor(col * levels + 0.5) / levels;
   }
   col += (hash(uv * uRes + fract(uTime) * 100.0) - 0.5) * uGrain * 0.35;
-  o = vec4(clamp(col, 0.0, 1.0), 1.0);
+  o = vec4(clamp(col, 0.0, 1.0) * uFade, 1.0);   // uFade: live on (1) ↔ faded to black (0)
 }`;
 
 const RECALL_SLOTS = 15;       // 15 memories, one every 2 s = 30 s
@@ -218,7 +218,8 @@ export class FxChain {
     return this.scene;
   }
 
-  render(p, now) {
+  // fade: 1 = the picture, 0 = black (the live switch fades between them).
+  render(p, now, fade = 1) {
     const gl = this.gl;
     const [w, h] = this.size;
 
@@ -257,7 +258,7 @@ export class FxChain {
       uBrightness: p.brightness, uContrast: p.contrast, uSaturation: p.saturation, uHue: p.hue,
       uInvert: p.invert, uBlur: p.blur, uPixelate: p.pixelate, uSmear: p.smear,
       uTint: p.tint, uTintColour: [p.tint_r, p.tint_g, p.tint_b], uBloomAmt: p.bloom, uRecallAmt: p.recall,
-      uPosterize: p.posterize, uGrain: p.grain, uInstability: p.instability,
+      uPosterize: p.posterize, uGrain: p.grain, uInstability: p.instability, uFade: fade,
     }, [w, h]);
   }
 

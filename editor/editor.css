@@ -23,14 +23,22 @@ button:disabled { opacity: .55; cursor: default; border-style: dashed; }
 button:disabled:hover { border-color: var(--line-2); color: inherit; }
 select, input[type=number], input[type=text], input[type=password] { background: var(--panel); border: 1px solid var(--line-2); padding: 3px 6px; }
 input[type=number] { width: 4.6em; text-align: right; }
-input[type=range] { accent-color: var(--hot); width: 100%; margin: 0; }
+/* Sliders: a thin line and a small square, quiet until touched. */
+input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 14px; margin: 0; background: transparent; cursor: pointer; }
+input[type=range]::-webkit-slider-runnable-track { height: 2px; background: var(--line-2); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 8px; height: 8px; margin-top: -3px; background: var(--txt-2); border: none; }
+input[type=range]:hover::-webkit-slider-thumb, input[type=range]:focus::-webkit-slider-thumb { background: var(--hot); }
+input[type=range]:focus { outline: none; }
+input[type=range]::-moz-range-track { height: 2px; background: var(--line-2); }
+input[type=range]::-moz-range-thumb { width: 8px; height: 8px; background: var(--txt-2); border: none; border-radius: 0; }
 input[type=color] { background: none; border: 1px solid var(--line-2); padding: 0; width: 28px; height: 18px; vertical-align: middle; }
 kbd { font: 10px var(--mono); color: var(--txt-2); border: 1px solid var(--line-2); padding: 0 4px; margin-left: 4px; text-transform: none; }
 .dim { color: var(--txt-2); }
 .spacer { flex: 1; }
 
 .app { display: grid; height: 100vh;
-  grid-template: "top top top" auto "lib main insp" 1fr "pads pads pads" auto "status status status" auto / 330px 1fr 370px; }
+  grid-template: "top top top" auto "lib main insp" 1fr "pads pads pads" auto "status status status" auto / var(--side) 1fr var(--side); }
+:root { --side: 360px; }
 
 /* ---- top bar ---- */
 .topbar { grid-area: top; display: flex; align-items: center; gap: 8px; padding: 0 12px; height: 48px;
@@ -47,6 +55,10 @@ kbd { font: 10px var(--mono); color: var(--txt-2); border: 1px solid var(--line-
 .rec::before { content: "● "; color: var(--live); }
 .rec.on { background: var(--live); color: #000; border-color: var(--live); }
 .rec.on::before { color: #000; }
+.live { border-color: var(--live); color: var(--live); }
+.live.on { background: var(--live); color: #000; border-color: var(--live); }
+.live.on kbd { color: #000; border-color: #000; }
+.live.on::before { content: "● "; }
 .menu { position: absolute; top: 46px; right: 90px; z-index: 15; width: 460px; background: var(--panel-2);
   border: 1px solid var(--hot); box-shadow: 0 10px 40px #000; padding: 10px 12px; }
 
@@ -67,7 +79,14 @@ kbd { font: 10px var(--mono); color: var(--txt-2); border: 1px solid var(--line-
 .buttons { display: flex; flex-wrap: wrap; gap: 5px; margin: 4px 0; }
 .seg { display: inline-flex; flex-wrap: wrap; }
 .seg button + button { border-left: none; }
-.segrow { display: grid; grid-template-columns: 9.5em 1fr; gap: 8px; align-items: center; margin: 4px 0; }
+.segrow { display: grid; grid-template-columns: 6em minmax(0, 1fr); gap: 8px; align-items: center; margin: 4px 0; }
+.segrow select { max-width: 100%; }
+.segrow > span:first-child { color: var(--txt-2); }
+.inline { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.inline select { flex: 1; min-width: 0; }
+button.small { padding: 2px 7px; font-size: 11px; }
+/* One focus colour: amber, never the browser's blue. */
+:focus-visible, select:focus { outline: 1px solid var(--hot); outline-offset: 0; }
 
 /* on/off switch */
 .sw { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; padding: 3px 0; user-select: none; text-transform: lowercase; }
@@ -106,6 +125,14 @@ kbd { font: 10px var(--mono); color: var(--txt-2); border: 1px solid var(--line-
   background: rgba(5, 5, 5, .82); border: 1px solid var(--line-2); padding: 3px 8px; font-size: 11px; pointer-events: none; }
 #hud:empty, #hud-rec:empty, #hud-wait:empty { display: none; }
 #hud-buffer { color: var(--run); }
+#live-badge { position: absolute; top: 8px; left: 8px; background: rgba(5,5,5,.82); border: 1px solid var(--line-2); color: var(--txt-2); padding: 2px 8px; font-size: 11px; pointer-events: none; }
+#live-badge.on { border-color: var(--live); color: var(--live); }
+.monitor.offair::after { content: ""; position: absolute; inset: 0; background: rgba(0,0,0,.55); pointer-events: none; }
+.monitor.offair #live-badge { z-index: 1; }
+#out-hint { display: none; }
+body.output #out-hint:not([hidden]) { display: block; position: fixed; top: 14px; left: 50%; transform: translateX(-50%); background: rgba(5,5,5,.82);
+  border: 1px solid var(--line-2); color: var(--txt-2); padding: 4px 10px; font-size: 12px; pointer-events: none; z-index: 2; }
+#status-output.ok { color: var(--run); }
 #hud-wait, #hud-rec { color: var(--live); }
 .transport { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 7px 10px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--panel); }
 .transport .sep { width: 1px; height: 18px; background: var(--line-2); margin: 0 4px; }
@@ -118,7 +145,7 @@ kbd { font: 10px var(--mono); color: var(--txt-2); border: 1px solid var(--line-
 /* ---- right: inspector ---- */
 .insp { grid-area: insp; border-left: 1px solid var(--line); }
 .fx-section { border: 1px solid var(--line); padding: 9px 11px; margin: 0 0 10px; }
-.fx-row { display: grid; grid-template-columns: 9.5em 1fr 4em auto; gap: 8px; align-items: center; margin: 3px 0; }
+.fx-row { display: grid; grid-template-columns: 8.6em 1fr 3.4em auto; gap: 7px; align-items: center; margin: 2px 0; }
 .fx-row .name { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
 .fx-row .name span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fx-row .bound { color: var(--hot); font-size: 10px; white-space: nowrap; }
@@ -174,6 +201,6 @@ body.bare #view { width: 100%; height: 100%; aspect-ratio: auto; }
 
 /* ---- ?output: the picture alone (projector window, Syphon) ---- */
 body.output .app { display: block; }
-body.output .app > :not(.main), body.output .main > :not(.monitor), body.output #hud { display: none !important; }
+body.output .app > :not(.main), body.output .main > :not(.monitor), body.output #hud, body.output #live-badge { display: none !important; }
 body.output .main, body.output .monitor { position: fixed; inset: 0; display: block; }
 body.output #view { width: 100vw; height: 100vh; aspect-ratio: auto; cursor: default; }

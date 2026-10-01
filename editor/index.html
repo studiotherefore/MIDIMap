@@ -28,7 +28,8 @@
       <button id="midi-btn" title="MIDI">midi <span id="midi-dot" class="dot">●</span> ▾</button>
     </div>
     <div class="group">
-      <button id="record" class="rec" title="record the picture and the kick (V)">rec <kbd>V</kbd></button>
+      <button id="record" class="rec" title="record what the output shows, with the kick (V)">rec <kbd>V</kbd></button>
+      <button id="live" class="live" title="live: the output shows the picture; off: it fades to black (L)">live <kbd>L</kbd></button>
     </div>
     <div class="menu" id="midi-panel" hidden>
       <h3>midi</h3>
@@ -66,6 +67,8 @@
   <main class="main">
     <div class="monitor" id="monitor">
       <canvas id="view"></canvas>
+      <span id="live-badge"></span>
+      <div id="out-hint" hidden>double-click or press F for full screen · Esc leaves it</div>
       <div id="hud"><span id="hud-rec"></span><span id="hud-beat"></span><span id="hud-tempo"></span><span id="hud-a"></span><span id="hud-b"></span><span id="hud-buffer"></span><span id="hud-wait"></span></div>
     </div>
     <div class="transport">
@@ -167,18 +170,27 @@
 
     <div class="inner" data-tab-panel="output" hidden>
       <div class="frame">
+        <h3>live <span><kbd>L</kbd></span></h3>
+        <div class="sws"><span class="sw" id="live-sw" role="switch" tabindex="0"><i></i>live: the output shows the picture</span></div>
+        <p class="note">Off fades the output (and Syphon, and a recording) to black in 0.6 s; on fades it back. This monitor keeps showing the picture, dimmed, so you can prepare the next thing.</p>
+      </div>
+      <div class="frame">
         <h3>output window</h3>
-        <div class="buttons"><button id="output-window">open output window</button></div>
-        <p class="note">The picture alone in its own window: drag it to the projector, then press F there for full screen. It follows this editor. The live switch, choosing a display and full screen from here come in phase 2.</p>
+        <div class="segrow"><span>display</span><span class="inline"><select id="out-display" aria-label="Display"></select><button id="find-displays" class="small" title="Ask the browser to list your displays" hidden>find…</button></span></div>
+        <div class="segrow"><span>as</span><span class="seg" id="out-mode"><button data-full="1">full screen</button><button data-full="0">window</button></span></div>
+        <div class="segrow"><span></span><span class="inline"><button id="output-window">open output</button><button id="output-close" hidden>close</button><span id="out-state" class="dim"></span></span></div>
+        <p class="note">The picture alone, following this editor. <b>F</b> full screen · Esc leaves it.</p>
       </div>
       <div class="frame">
         <h3>record <span><kbd>V</kbd></span></h3>
         <div class="buttons"><button id="record-2" class="rec">record</button></div>
-        <p class="note">Records the picture (no panel, no cursor) and the kick to a video file in your Downloads folder.</p>
+        <p class="note">Records what the audience sees (the picture, the live fade, the kick) to a video file in your Downloads folder.</p>
       </div>
-      <div class="frame">
-        <h3>syphon <span>app only</span></h3>
-        <p class="note">The MIDIMap app sends the picture to Syphon as "MIDIMap" (1920×1080). It moves to this editor in phase 2.</p>
+      <div class="frame" id="syphon" hidden>
+        <h3>syphon</h3>
+        <p class="note" id="syphon-info">Sending "MIDIMap"…</p>
+        <div class="segrow"><span>frame rate</span><span class="seg" id="syphon-fps"><button data-fps="30">30 fps</button><button data-fps="60">60 fps</button></span></div>
+        <p class="note">For MadMapper, Resolume, OBS and Syphon Recorder on this Mac: always 1920×1080, live fade included.</p>
       </div>
     </div>
 
@@ -198,7 +210,8 @@
         <tr><td>S</td><td>hold the sun</td></tr>
         <tr><td>V</td><td>record video</td></tr>
         <tr><td>H</td><td>hide the editor (picture only); H again brings it back</td></tr>
-        <tr><td>F</td><td>full screen</td></tr>
+        <tr><td>L</td><td>live: the output shows the picture, or fades to black</td></tr>
+        <tr><td>F</td><td>full screen: the output window if it's open, otherwise this editor</td></tr>
         <tr><td>Esc</td><td>cancel MIDI learn, close menus</td></tr>
         <tr><td>MiniLab mod strip</td><td>look up (bottom = horizon, top = sky)</td></tr>
         <tr><td>knobs 1 · 2 · 3 · 4</td><td>mix · delay · cut↔dissolve · speed (BPM when locked)</td></tr>
@@ -218,6 +231,8 @@
   <footer class="status">
     <span id="status">Loading…</span>
     <span class="spacer"></span>
+    <span id="status-output"></span>
+    <span id="status-syphon"></span>
     <span id="clock-status"></span>
     <span id="status-midi"></span>
     <span>mapillary · cc-by-sa</span>

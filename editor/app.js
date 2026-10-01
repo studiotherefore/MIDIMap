@@ -15,6 +15,7 @@ const $ = (s) => document.querySelector(s);
 // ?output: a clean picture that mirrors the control window (projector window, or
 // the MIDIMap app's off-screen Syphon output). No panel, no HUD, no MIDI of its own.
 const OUTPUT = new URLSearchParams(location.search).has('output');
+const APP_OUTPUT = new URLSearchParams(location.search).has('app'); // the app's own output windows: no hints
 if (OUTPUT) document.body.classList.add('output');
 const MAX_B_METRES = 40;   // don't show another run's photo if it's further than this from layer A
 const START_SLOT = 5;      // Karl-Marx-Allee: ten 360° runs, winter 2021 to spring 2026
@@ -62,11 +63,13 @@ const S = {
   tempo: false, bpm: 120, stepsPerBeat: 1,
   pitch: 0, fov: 90, follow: true, yawOffset: 0, glance: 0, travel: 0,
   sun: false, sunSpot: null, lockYaw: 0, lockPitch: 0,
+  live: true, // L: the output shows the picture (true) or fades to black (false)
 };
 let shown = { a: null, b: null };  // photo ids currently on each layer
 let lastStep = 0;
 let stalledSince = 0;
-window.blend = { S, renderer, fx, look, kick }; // for inspecting from the console
+window.blend = { S, renderer, fx, look, kick };
+Object.defineProperty(window.blend, 'fade', { get: () => fade }); // for tests and the console // for inspecting from the console
 
 // ---- photos -----------------------------------------------------------------------
 
@@ -181,6 +184,8 @@ function travelHeading(i) {
 // ---- frame loop ---------------------------------------------------------------------
 
 let lastFrame = performance.now();
+const FADE_S = 0.6;
+let fade = 1;
 
 // One step along the run, if the next photos (both layers) are ready.
 function advance(now) {
@@ -446,8 +451,13 @@ function tick(now) {
   const [w, h] = renderer.fitCanvas();
   fx.resize(w, h);
   renderer.render({ yaw, pitch, fov: S.fov }, { mode: S.mode, mix: S.mix }, S.smooth * stepDuration(), fx.sceneTarget);
-  fx.render(look, now);
+  // Live fades the output to black and back (FADE_S). The editor's monitor keeps
+  // showing the picture (dimmed and marked) so you can prepare the next thing,
+  // except while recording: a recording is what the audience sees.
+  fade = Math.max(0, Math.min(1, fade + (S.live ? dt : -dt) / FADE_S));
+  fx.render(look, now, OUTPUT || recorder ? fade : 1);
   hud(now);
+  if (!OUTPUT) postIfMoved();
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
@@ -797,6 +807,7 @@ function sync() {
   setSeg('#bmode', 'b', S.bMode);
   [...$('#modes').children].forEach((b, i) => b.classList.toggle('on', i === S.mode));
   syncCamera();
+  if (!OUTPUT) renderLive();
 }
 
 // Camera values also change by dragging the picture, the wheel and MIDI, so
@@ -880,7 +891,8 @@ window.addEventListener('keydown', (e) => {
   else if (e.code === 'KeyR') { S.dir = -S.dir; shown.b = null; sync(); }
   else if (e.code === 'KeyH') toggleBare();
   else if (e.code === 'KeyP') togglePads();
-  else if (e.code === 'KeyF') { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen(); }
+  else if (e.code === 'KeyF') { if (OUTPUT) { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen(); } else fullscreen(); }
+  else if (e.code === 'KeyL' && !OUTPUT) setLive(!S.live);
   else if (e.code === 'KeyS') toggleSun();
   else if (e.code === 'KeyV') toggleRecord();
   else if (e.code === 'Escape') { cancelLearn(); $('#midi-panel').hidden = true; }
@@ -1422,13 +1434,31 @@ setInterval(() => {
   $('#hud-rec').textContent = `● REC ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }, 250);
 
-// ---- mirroring to an output window ---------------------------------------------------------
-// The control window broadcasts its state 20 times a second; an ?output window
-// (same site, any tab or window, or the MIDIMap app's Syphon output) follows it.
-// Each loads its own photos, so the output never waits on the control window's screen.
+// ---- mirroring to the output ------------------------------------------------------------------
+// The editor broadcasts its state 20 times a second, and at once whenever the
+// photo, the run or live changes (so a photo change reaches the output on the
+// same beat, not up to 50 ms later). An ?output page (the output window, or the
+// MIDIMap app's output and Syphon windows) follows it. Each loads its own
+// photos, so the output never waits on the editor's screen. Its own channel name,
+// so experiment 3 open in another tab doesn't interfere.
 
-const MIRROR_KEYS = ['bMode', 'delay', 'dir', 'fps', 'mode', 'mix', 'smooth', 'sharp', 'pitch', 'fov', 'follow', 'yawOffset', 'glance', 'sun', 'tempo', 'bpm', 'stepsPerBeat'];
-const channel = new BroadcastChannel('midimap-fx');
+const MIRROR_KEYS = ['bMode', 'delay', 'dir', 'fps', 'mode', 'mix', 'smooth', 'sharp', 'pitch', 'fov', 'follow', 'yawOffset', 'glance', 'sun', 'tempo', 'bpm', 'stepsPerBeat', 'live'];
+const channel = new BroadcastChannel('midimap-editor');
+let posted = '';
+function postState() {
+  posted = `${S.runA?.id}:${S.index}:${S.live}:${S.bMode}:${S.runB?.id}`;
+  channel.postMessage({
+    S: Object.fromEntries(MIRROR_KEYS.map((k) => [k, S[k]])),
+    look: { ...look },
+    runA: S.runA?.id || null,
+    imageA: S.runA?.ids[S.index] || null,
+    runB: S.bMode === 'run' ? S.runB?.id || null : null,
+    index: S.index,
+  });
+}
+function postIfMoved() {
+  if (posted !== `${S.runA?.id}:${S.index}:${S.live}:${S.bMode}:${S.runB?.id}`) postState();
+}
 
 if (OUTPUT) {
   let loadingA = null;
@@ -1452,21 +1482,154 @@ if (OUTPUT) {
     }
   };
 } else {
-  setInterval(() => channel.postMessage({
-    S: Object.fromEntries(MIRROR_KEYS.map((k) => [k, S[k]])),
-    look: { ...look },
-    runA: S.runA?.id || null,
-    imageA: S.runA?.ids[S.index] || null,
-    runB: S.bMode === 'run' ? S.runB?.id || null : null,
-    index: S.index,
-  }), 50);
-  // A clean projector window in an ordinary browser (the MIDIMap app has its own output).
-  if (!navigator.userAgent.includes('Electron')) {
-    $('#output-window').addEventListener('click', () => window.open('./?output', 'midimap-output', 'width=960,height=540'));
-  } else {
-    $('#output-window').disabled = true;
-    $('#output-window').title = 'The MIDIMap app has its own output (Syphon)';
+  setInterval(postState, 50);
+}
+
+// ---- live and the output window ------------------------------------------------------------
+// L: live on/off. The output window shows the picture alone on a chosen display.
+// In Chrome the displays come from the Window Management API (it asks once);
+// in the MIDIMap app, from the app itself (window.midimapApp), which opens a
+// real full-screen window there (Syphon carries on regardless).
+
+const APP = window.midimapApp || null;
+let outWin = null;      // the output window (Chrome)
+let screenDetails = null;
+let displays = [];      // [{ id, label, width, height, primary, current, left, top, aw, ah }]
+let outFull = true;     // open full screen (true) or as a window
+
+function setLive(on) {
+  S.live = on;
+  sync();
+  postState();
+  status(on ? 'Live: the output shows the picture.' : 'Not live: the output fades to black. L goes live again.');
+}
+
+function renderLive() {
+  setSw('#live-sw', S.live);
+  $('#live').classList.toggle('on', S.live);
+  $('#monitor').classList.toggle('offair', !S.live);
+  $('#live-badge').textContent = S.live ? '● live' : 'not live · output faded to black · L';
+  $('#live-badge').classList.toggle('on', S.live);
+}
+
+async function findDisplays(ask = false) {
+  if (APP) {
+    displays = await APP.displays();
+  } else if ('getScreenDetails' in window) {
+    try {
+      // Without asking, only read them if permission was already given.
+      const perm = await navigator.permissions.query({ name: 'window-management' }).catch(() => null);
+      if (!ask && perm?.state !== 'granted') return renderDisplays();
+      screenDetails = await window.getScreenDetails();
+      screenDetails.onscreenschange = () => findDisplays();
+      displays = screenDetails.screens.map((s, i) => ({
+        id: i, label: s.label || `display ${i + 1}`, width: s.width, height: s.height,
+        primary: s.isPrimary, current: s === screenDetails.currentScreen,
+        left: s.availLeft, top: s.availTop, aw: s.availWidth, ah: s.availHeight,
+      }));
+    } catch {
+      status('The browser did not allow listing displays; the output opens as a window you can drag.', true);
+    }
   }
+  renderDisplays();
+}
+
+function renderDisplays() {
+  const sel = $('#out-display');
+  const keep = sel.value;
+  sel.replaceChildren(...(displays.length ? displays.map((d) => Object.assign(document.createElement('option'), {
+    value: String(d.id),
+    textContent: `${d.label} · ${d.width}×${d.height}${d.current ? ' · this screen' : ''}`,
+  })) : [Object.assign(document.createElement('option'), { value: '', textContent: 'this screen' })]));
+  // Default to a display other than the editor's, if there is one.
+  const other = displays.find((d) => !d.current);
+  sel.value = displays.some((d) => String(d.id) === keep) ? keep : String((other || displays[0])?.id ?? '');
+  $('#find-displays').hidden = !!APP || displays.length > 0 || !('getScreenDetails' in window);
+}
+
+const outputOpen = () => (APP ? appOutputOpen : !!(outWin && !outWin.closed));
+let appOutputOpen = false;
+
+async function openOutput() {
+  const d = displays.find((x) => String(x.id) === $('#out-display').value);
+  if (APP) {
+    await APP.openOutput({ display: d?.id ?? null, fullscreen: outFull });
+    appOutputOpen = true;
+    renderOutput();
+    return;
+  }
+  const where = d ? `left=${d.left},top=${d.top},width=${d.aw},height=${d.ah}` : 'width=960,height=540';
+  outWin = window.open('./?output', 'midimap-output', `popup,${where}`);
+  if (!outWin) return status('The browser blocked the output window. Allow pop-ups for this site, then try again.', true);
+  if (d && !outFull) outWin.moveTo(d.left, d.top);
+  if (outFull) {
+    const go = () => outWin.document.documentElement.requestFullscreen(d && screenDetails ? { screen: screenDetails.screens[d.id] } : {})
+      .then(() => status(`Output: full screen on ${d ? d.label : 'this screen'}.`))
+      .catch(() => status('Output window open. To make it full screen, double-click it or press F in it.'));
+    if (outWin.document.readyState === 'complete') go(); else outWin.addEventListener('load', go, { once: true });
+  }
+  renderOutput();
+}
+
+function closeOutput() {
+  if (APP) { APP.closeOutput(); appOutputOpen = false; } else if (outWin && !outWin.closed) outWin.close();
+  renderOutput();
+}
+
+function renderOutput() {
+  const open = outputOpen();
+  $('#output-window').textContent = open ? 'move here' : 'open output';
+  $('#out-state').textContent = open ? (S.live ? '● open · live' : '● open · black') : 'closed';
+  $('#out-state').style.color = open ? (S.live ? 'var(--run)' : 'var(--txt-2)') : '';
+  $('#output-close').hidden = !open;
+  setSeg('#out-mode', 'full', outFull ? '1' : '0');
+  const where = displays.find((x) => String(x.id) === $('#out-display').value);
+  $('#status-output').textContent = open ? `output: ${where ? where.label : 'window'}${S.live ? ' · live' : ' · black'}` : 'output: closed';
+  $('#status-output').classList.toggle('ok', open && S.live);
+}
+
+// F: full screen for the output if it's open, otherwise for the editor.
+function fullscreen() {
+  if (APP && appOutputOpen) return APP.toggleOutputFullscreen();
+  if (outWin && !outWin.closed) {
+    const doc = outWin.document;
+    if (doc.fullscreenElement) return doc.exitFullscreen();
+    return doc.documentElement.requestFullscreen().catch(() => status('Double-click the output window (or press F in it) to make it full screen.'));
+  }
+  if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen();
+}
+
+if (OUTPUT) {
+  // The output itself: double-click or F toggles full screen; a hint says so briefly.
+  const hint = () => {
+    $('#out-hint').hidden = !!document.fullscreenElement || APP_OUTPUT;
+    clearTimeout(hint.t);
+    hint.t = setTimeout(() => { $('#out-hint').hidden = true; }, 3000);
+  };
+  $('#view').addEventListener('dblclick', () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()));
+  document.addEventListener('fullscreenchange', hint);
+  hint();
+} else {
+  $('#live').addEventListener('click', () => setLive(!S.live));
+  onSwitch('#live-sw', () => setLive(!S.live));
+  $('#output-window').addEventListener('click', openOutput);
+  $('#output-close').addEventListener('click', closeOutput);
+  $('#find-displays').addEventListener('click', () => findDisplays(true));
+  $('#out-display').addEventListener('change', (e) => { e.target.blur(); renderOutput(); });
+  for (const b of $('#out-mode').querySelectorAll('[data-full]')) b.addEventListener('click', () => { outFull = b.dataset.full === '1'; renderOutput(); });
+  if (APP) {
+    APP.onOutputClosed?.(() => { appOutputOpen = false; renderOutput(); });
+    $('#syphon').hidden = false;
+    for (const b of $('#syphon-fps').querySelectorAll('[data-fps]')) b.addEventListener('click', () => APP.setSyphonFps(+b.dataset.fps));
+    setInterval(async () => {
+      const sy = await APP.syphon();
+      setSeg('#syphon-fps', 'fps', sy.fps);
+      $('#syphon-info').textContent = `Sending "MIDIMap" ${sy.size || '(starting)'} at ${sy.measured.toFixed(1)} fps (target ${sy.fps}).`;
+      $('#status-syphon').textContent = `syphon ${sy.measured.toFixed(0)} fps`;
+    }, 2000);
+  }
+  setInterval(renderOutput, 1000);
+  findDisplays();
 }
 
 // ---- tempo controls -----------------------------------------------------------------------

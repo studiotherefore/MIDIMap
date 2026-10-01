@@ -1,6 +1,6 @@
 # MIDIMap app (Syphon output)
 
-A small Mac app around experiment 3 (effects). Kept entirely separate from Drift.
+A small Mac app around the editor (experiment 3 until 2026-10-01) (effects). Kept entirely separate from Drift.
 
 - **Control window**: the full experiment (panel, mouse, keys, MIDI without prompts).
 - **Output**: an invisible window rendering the same scene at exactly **1920×1080**,

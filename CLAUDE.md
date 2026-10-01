@@ -18,12 +18,14 @@ Three parts, one codebase:
    Mapillary imagery (open, CC-BY-SA, pixels readable). The author is using
    them to decide how recording and editing sequences should work. Current
    front line: **experiment 3, effects** (`experiments/fx/`).
-3. **The MIDIMap app** (`app/`): a small Electron app that opens experiment 3
-   and publishes a Syphon source "MIDIMap" at 1920×1080 (30 or 60 fps).
+3. **The MIDIMap app** (`app/`): a small Electron app that opens the editor
+   (since phase 2; experiment 3 before) and publishes a Syphon source
+   "MIDIMap" at 1920×1080 (30 or 60 fps).
 4. **The editor** (`editor/`, at `/editor/`): the main tool being built from
    experiment 3, following `EDITOR-PLAN.md` (layout C from
-   `mockups/editor.html`, Drift's look). Phase 1 (layout + Mapillary, parity
-   with experiment 3) is done; phases 2–8 are in the plan.
+   `mockups/editor.html`, Drift's look). Phases 1 (layout + Mapillary, parity
+   with experiment 3) and 2 (live, output window, app) are done; 3–8 are in
+   the plan.
 
 ## The author and how to work with them
 
@@ -203,6 +205,20 @@ stay frozen (experiment 3 started as a copy of 2).
 - Lessons: going to a place must not rebuild the pads (a rebuild swallowed the
   double-click that renames); number boxes and menus blur after a change so
   keys reach the editor again.
+- Phase 2: **live (L)** fades the output to black and back (`S.live`
+  mirrored; `uFade` in fx.js FINAL, `FADE_S` 0.6 s); the editor's monitor
+  keeps the picture (dimmed, "not live" badge) except while recording, so a
+  recording = the output. Mirroring is on its own channel `midimap-editor`,
+  posted every 50 ms *and* at once when photo/run/live changes (measured
+  0–25 ms editor → output window). Output window: display list from the
+  Window Management API (asks once) or, in the app, `window.midimapApp`
+  (`app/preload.cjs`: displays, openOutput {display, fullscreen},
+  closeOutput, toggleOutputFullscreen, syphon, setSyphonFps). F = output full
+  screen if open. `?output&app` = the app's own output windows (no hints).
+  Equal side panes (`--side` 360px); sliders are a thin line + small square.
+  Untested by machine: full screen on a second display (needs a real gesture
+  and a second screen); the author's Roland video output appears as a
+  mirror, not a separate display.
 - Verified 2026-10-01 with Playwright: 42 parity checks (keys, mouse, fake
   MiniLab, learn, looks with a faked API, output mirroring, recording), the
   clock and kick timing tests.
