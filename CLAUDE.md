@@ -20,6 +20,10 @@ Three parts, one codebase:
    front line: **experiment 3, effects** (`experiments/fx/`).
 3. **The MIDIMap app** (`app/`): a small Electron app that opens experiment 3
    and publishes a Syphon source "MIDIMap" at 1920×1080 (30 or 60 fps).
+4. **The editor** (`editor/`, at `/editor/`): the main tool being built from
+   experiment 3, following `EDITOR-PLAN.md` (layout C from
+   `mockups/editor.html`, Drift's look). Phase 1 (layout + Mapillary, parity
+   with experiment 3) is done; phases 2–8 are in the plan.
 
 ## The author and how to work with them
 
@@ -178,6 +182,30 @@ stay frozen (experiment 3 started as a copy of 2).
     index). A `?output` page hides all UI and follows it: the browser's
     "Open output window" (projector) and the app's Syphon output. Anything
     that changes the picture must be mirrored.
+
+### The editor (`editor/`; read `EDITOR-PLAN.md`)
+
+- Copies of experiment 3's `app.js`, `fx.js`, `kick.js` and experiment 2's
+  `renderer.js` (so the experiments stay frozen); imports `experiments/lib/`
+  and `js/locations.js`. Same localStorage keys as experiment 3 (slots,
+  learn, kick, clock, presets), so settings carry over.
+- Layout C: map + layer A/B + blend (left), monitor flush under the top bar
+  + transport + "this run / this place / sequence" (centre), inspector tabs
+  effects / camera / audio / output / keys (right), places as pads (bottom,
+  P folds), status bar (status messages, clock status, MIDI). Tempo lives in
+  the top bar. H = picture only; `?output` = picture only (mirrored).
+- Design rules from the author: Drift's look (near-black, `#e8a84c` amber,
+  SF Mono, lowercase, square corners, outline buttons) but no faint text;
+  on/off = switches (`.sw`), two/three-way choices = segmented buttons
+  (`.seg`), never sliders; looks below the effect controls; looks are a
+  global library (projects will keep only current values); live off fades to
+  black (phase 2); place banks later.
+- Lessons: going to a place must not rebuild the pads (a rebuild swallowed the
+  double-click that renames); number boxes and menus blur after a change so
+  keys reach the editor again.
+- Verified 2026-10-01 with Playwright: 42 parity checks (keys, mouse, fake
+  MiniLab, learn, looks with a faked API, output mirroring, recording), the
+  clock and kick timing tests.
 
 ### Cloudflare Worker (`src/worker.js`)
 

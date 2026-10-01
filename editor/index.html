@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MIDIMap editor</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="editor.css">
+  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <span class="mark">midimap<i>∴</i></span>
+    <div class="group" title="tempo">
+      <span id="beat-light" title="beat"></span>
+      <button id="bpm-down" title="BPM down (−, Shift: by 5)">−</button><input type="number" id="bpm" min="20" max="300" step="1" value="120" aria-label="BPM"><button id="bpm-up" title="BPM up (=, Shift: by 5)">+</button><span class="label">bpm</span>
+      <button id="tap" title="tap tempo (T)">tap</button>
+      <select id="spb" title="steps per beat (, .)" aria-label="Steps per beat"></select>
+      <span class="sw" id="tempo" role="switch" tabindex="0" title="lock photo changes to the tempo (B)"><i></i>lock</span>
+      <select id="clock-source" title="clock source (C)" aria-label="Clock">
+        <option value="internal">internal clock</option>
+        <option value="external">midi clock in</option>
+      </select>
+    </div>
+    <span class="spacer"></span>
+    <div class="group">
+      <button id="midi-btn" title="MIDI">midi <span id="midi-dot" class="dot">●</span> ▾</button>
+    </div>
+    <div class="group">
+      <button id="record" class="rec" title="record the picture and the kick (V)">rec <kbd>V</kbd></button>
+    </div>
+    <div class="menu" id="midi-panel" hidden>
+      <h3>midi</h3>
+      <p id="midi-status" class="note">MIDI: starting…</p>
+      <p class="note">To put a control on a knob or fader: click <b>learn</b> beside it (effects, audio), then move the knob. Devices, controller profiles and learn-anything come in phase 4.</p>
+    </div>
+  </header>
+
+  <aside class="lib pane">
+    <div id="map" class="map"></div>
+    <div class="inner">
+      <div class="frame">
+        <h3>layer a</h3>
+        <span class="seg"><button class="on">mapillary</button><button disabled title="comes in phase 6">street view</button></span>
+        <p id="a-info" class="note">Green lines on the map are 360° runs. Click one to play it.</p>
+      </div>
+      <div class="frame">
+        <h3>layer b</h3>
+        <span class="seg" id="bmode">
+          <button data-b="delay">same run, delayed</button><button data-b="run">another run here</button><button data-b="off">off</button>
+        </span>
+        <div class="row"><span>delay <span class="cc">cc 71</span></span><input type="range" id="delay" min="0" max="40" value="8"><span class="v"><span id="delay-val">8</span> fr</span></div>
+        <p class="note">Other 360° runs on this street (click one):</p>
+        <ol id="runs"></ol>
+      </div>
+      <div class="frame">
+        <h3>blend a + b <span>[ ]</span></h3>
+        <div id="modes" class="buttons"></div>
+        <div class="row"><span>mix <span class="cc">cc 74</span></span><input type="range" id="mix" min="0" max="1" step="0.01" value="0.5"><span class="v" id="mix-val"></span></div>
+        <div class="row"><span>cut ↔ dissolve <span class="cc">cc 76</span></span><input type="range" id="smooth" min="0" max="1" step="0.01" value="0"><span class="v" id="smooth-val"></span></div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="monitor" id="monitor">
+      <canvas id="view"></canvas>
+      <div id="hud"><span id="hud-rec"></span><span id="hud-beat"></span><span id="hud-tempo"></span><span id="hud-a"></span><span id="hud-b"></span><span id="hud-buffer"></span><span id="hud-wait"></span></div>
+    </div>
+    <div class="transport">
+      <button id="play" title="Space">play</button>
+      <button id="step-back" title="←">◀ step</button><button id="step-fwd" title="→">step ▶</button>
+      <span class="seg" id="direction" title="R"><button data-dir="1">forward</button><button data-dir="-1">backward</button></span>
+      <span class="sep"></span>
+      <span class="speed" id="speed"><span class="dim">speed</span> <input type="range" id="fps" min="0.5" max="12" step="0.5" value="3"> <span id="fps-val">3</span> frames/s</span>
+      <span class="dim" id="speed-locked" hidden>speed follows the tempo</span>
+    </div>
+    <div class="below">
+      <div class="tabs" id="below-tabs">
+        <button data-below="run" class="on">this run</button>
+        <button data-below="place">this place</button>
+        <button data-below="seq">sequence <span class="dim">· experiment first</span></button>
+      </div>
+      <div class="inner" data-below-panel="run">
+        <p id="run-info" class="note">No run playing yet.</p>
+        <p class="note later">The run strip (where you are, what's loaded, loop in/out) comes in phase 5.</p>
+      </div>
+      <div class="inner" data-below-panel="place" hidden>
+        <p id="place-info" class="note"></p>
+        <p class="note later">Editable place details come in phase 5. For now: double-click a pad's name to rename it; Option+1–8 stores the playing photo.</p>
+      </div>
+      <div class="inner" data-below-panel="seq" hidden>
+        <p class="note later">How sequences are recorded and edited is still open: each approach gets its own experiment first, then the chosen one lands here.</p>
+      </div>
+    </div>
+  </main>
+
+  <aside class="insp pane">
+    <div class="tabs" id="insp-tabs">
+      <button data-tab="effects" class="on">effects</button>
+      <button data-tab="camera">camera</button>
+      <button data-tab="audio">audio</button>
+      <button data-tab="output">output</button>
+      <button data-tab="keys">keys</button>
+    </div>
+
+    <div class="inner" data-tab-panel="effects">
+      <div id="fx-params"></div>
+      <div class="frame">
+        <h3>looks <span>shift + 1–9</span></h3>
+        <div id="presets" class="buttons presets"></div>
+        <div class="buttons save-preset">
+          <button id="save-preset">+ save look…</button>
+          <span id="save-form" hidden>
+            <input id="preset-name" type="text" maxlength="40" aria-label="Look name">
+            <button id="save-confirm">save</button>
+            <button id="save-cancel">cancel</button>
+          </span>
+        </div>
+        <p class="note">Looks are shared by everything (like a reverb preset or a film look). Saving under an existing name updates it; × deletes.</p>
+        <p id="sync-status" class="note">Looks sync: checking…</p>
+        <div class="buttons">
+          <button id="copy-key" hidden>copy sync key</button>
+          <span id="key-form" hidden><input id="sync-key" type="password" placeholder="paste the sync key" aria-label="Sync key"> <button id="use-key">use key</button></span>
+          <button id="forget-key" hidden>forget key</button>
+          <button id="export-presets">export looks</button>
+          <label class="button">import looks<input type="file" id="import-presets" accept="application/json" hidden></label>
+        </div>
+      </div>
+    </div>
+
+    <div class="inner" data-tab-panel="camera" hidden>
+      <div class="frame">
+        <h3>view</h3>
+        <div class="row"><span>field of view <span class="cc">fader 1</span></span><input type="range" id="fov" min="30" max="130" value="90"><span class="v" id="fov-val"></span></div>
+        <div class="row"><span>look up <span class="cc">mod</span></span><input type="range" id="pitch" min="-90" max="90" value="0"><span class="v" id="pitch-val"></span></div>
+        <div class="buttons"><button id="sky">look up <kbd>↑</kbd></button><button id="horizon">horizon <kbd>↓</kbd></button></div>
+      </div>
+      <div class="frame">
+        <h3>follow</h3>
+        <div class="sws">
+          <span class="sw" id="follow" role="switch" tabindex="0"><i></i>face the direction of travel</span>
+          <span class="sw" id="sun" role="switch" tabindex="0" title="S"><i></i>hold the sun <kbd>S</kbd></span>
+        </div>
+        <p class="note">Drag the picture to look around; the wheel zooms. MIDI: main knob turns, pitch strip glances left/right.</p>
+      </div>
+      <div class="frame">
+        <h3>photos</h3>
+        <div class="sws"><span class="sw" id="sharp" role="switch" tabindex="0"><i></i>sharper photos (2048 px; Mapillary is slow, expect waits)</span></div>
+      </div>
+    </div>
+
+    <div class="inner" data-tab-panel="audio" hidden>
+      <div class="frame">
+        <h3>kick <span><kbd>K</kbd> off → 808 → 909</span></h3>
+        <span class="seg" id="kick-type"><button data-kick="off">off</button><button data-kick="808">808</button><button data-kick="909">909</button></span>
+        <div id="kick-params"></div>
+        <p class="note">One kick per beat while playing, locked to the tempo, and recorded with the picture. If it sounds early or late through your speakers or projector, move <b>kick offset</b> until it lines up.</p>
+      </div>
+      <div class="frame later">
+        <h3>more audio <span>later</span></h3>
+        <p class="note">Room for audio tools added here or adopted from other projects, for example:</p>
+        <div class="buttons"><button disabled>+ sampler</button><button disabled>+ synth (the walk plays itself)</button><button disabled>+ from drift: sound</button><button disabled>+ audio in (react to sound)</button></div>
+      </div>
+    </div>
+
+    <div class="inner" data-tab-panel="output" hidden>
+      <div class="frame">
+        <h3>output window</h3>
+        <div class="buttons"><button id="output-window">open output window</button></div>
+        <p class="note">The picture alone in its own window: drag it to the projector, then press F there for full screen. It follows this editor. The live switch, choosing a display and full screen from here come in phase 2.</p>
+      </div>
+      <div class="frame">
+        <h3>record <span><kbd>V</kbd></span></h3>
+        <div class="buttons"><button id="record-2" class="rec">record</button></div>
+        <p class="note">Records the picture (no panel, no cursor) and the kick to a video file in your Downloads folder.</p>
+      </div>
+      <div class="frame">
+        <h3>syphon <span>app only</span></h3>
+        <p class="note">The MIDIMap app sends the picture to Syphon as "MIDIMap" (1920×1080). It moves to this editor in phase 2.</p>
+      </div>
+    </div>
+
+    <div class="inner" data-tab-panel="keys" hidden>
+      <table class="keys">
+        <tr><td>Space · ← →</td><td>play/pause · step a photo</td></tr>
+        <tr><td>R</td><td>forward / backward</td></tr>
+        <tr><td>↑ ↓ · drag · wheel</td><td>look up · horizon · look around · zoom</td></tr>
+        <tr><td>1–8 · Option+1–8</td><td>go to a place · store the playing photo there</td></tr>
+        <tr><td>P</td><td>show / hide the places row</td></tr>
+        <tr><td>Shift+1–9</td><td>looks</td></tr>
+        <tr><td>[ ]</td><td>previous / next blend mode</td></tr>
+        <tr><td>T · B</td><td>tap tempo · lock photo changes to the tempo</td></tr>
+        <tr><td>− = · , .</td><td>BPM down/up (Shift: by 5) · fewer/more steps per beat</td></tr>
+        <tr><td>C</td><td>clock: internal ↔ follow an external MIDI clock (its Start/Stop play and pause)</td></tr>
+        <tr><td>K</td><td>kick: off → 808 → 909</td></tr>
+        <tr><td>S</td><td>hold the sun</td></tr>
+        <tr><td>V</td><td>record video</td></tr>
+        <tr><td>H</td><td>hide the editor (picture only); H again brings it back</td></tr>
+        <tr><td>F</td><td>full screen</td></tr>
+        <tr><td>Esc</td><td>cancel MIDI learn, close menus</td></tr>
+        <tr><td>MiniLab mod strip</td><td>look up (bottom = horizon, top = sky)</td></tr>
+        <tr><td>knobs 1 · 2 · 3 · 4</td><td>mix · delay · cut↔dissolve · speed (BPM when locked)</td></tr>
+        <tr><td>main knob · pitch strip</td><td>turn · glance left/right</td></tr>
+        <tr><td>pads 1–8 · fader 1</td><td>places 1–8 · field of view</td></tr>
+        <tr><td>MiniLab keys</td><td>step a photo (while paused)</td></tr>
+        <tr><td>knobs 5–8 · faders 2–4</td><td>echo · bloom · recall · tint · blur · smear · grain (Arturia's default numbers; otherwise use learn)</td></tr>
+      </table>
+    </div>
+  </aside>
+
+  <footer class="pads" id="pads">
+    <div class="head" id="pads-head" title="P"><span class="tick">▾</span><span class="title">places</span><span id="pads-now"></span><span class="spacer"></span><span class="dim">1–8 or pads · Option+1–8 stores the playing photo · double-click a name to rename · <kbd>P</kbd> show/hide</span></div>
+    <div class="body"><div class="slots" id="slots"></div></div>
+  </footer>
+
+  <footer class="status">
+    <span id="status">Loading…</span>
+    <span class="spacer"></span>
+    <span id="clock-status"></span>
+    <span id="status-midi"></span>
+    <span>mapillary · cc-by-sa</span>
+  </footer>
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
