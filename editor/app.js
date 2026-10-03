@@ -66,9 +66,11 @@ const S = {
   pitch: 0, fov: 90, follow: true, yawOffset: 0, glance: 0, travel: 0,
   sun: false, sunSpot: null, lockYaw: 0, lockPitch: 0,
   live: true, // L: the output shows the picture (true) or fades to black (false)
+  loop: false, loopIn: null, loopOut: null, // I / O / Shift+I: play round a stretch of the run
 };
 let shown = { a: null, b: null };  // photo ids currently on each layer
-let shownA = null;                 // layer A's photo and compass, for finding the sun on demand
+let shownA = null;
+let otherRuns = [];                // other 360° runs passing within 20 m (layer B candidates)                 // layer A's photo and compass, for finding the sun on demand
 let lastStep = 0;
 let stalledSince = 0;
 window.blend = { S, renderer, fx, look, kick };
@@ -166,12 +168,32 @@ function findSun(img, compass) {
   return { yaw: (compass + (u - 0.5) * 360 + 360) % 360, pitch: (0.5 - v) * 180 };
 }
 
+// The loop, when it's on and the photo is inside it: [in, out].
+const loopSpan = () => (S.loop && S.loopIn !== null && S.loopOut !== null && S.loopOut > S.loopIn ? [S.loopIn, S.loopOut] : null);
+
+// The photo after i in the playing direction: round the loop when inside it,
+// otherwise along the run (wrapping at its ends, as before).
+function nextIndex(i, d = S.dir) {
+  const span = loopSpan();
+  if (span && i >= span[0] && i <= span[1]) {
+    if (d > 0 && i + 1 > span[1]) return span[0];
+    if (d < 0 && i - 1 < span[0]) return span[1];
+  }
+  return (i + d + S.runA.length) % S.runA.length;
+}
+
 function prefetch(i) {
   const A = S.runA;
   A.ensure(i - 20, i + AHEAD + 30).catch((err) => status(err.message, true));
+  const span = loopSpan();
+  if (span) A.ensure(span[0] - 5, span[0] + AHEAD).then(() => A.ensure(span[1] - AHEAD, span[1] + 5)).catch(() => {});
+  let j = i;
   for (let k = 0; k < AHEAD; k++) {
-    const j = i + k * S.dir;
-    if (j < 0 || j >= A.length) break;
+    if (k) {
+      const n = nextIndex(j);
+      if (!span && Math.abs(n - j) !== 1) break; // the run's end
+      j = n;
+    }
     const { a, b } = framesFor(j);
     if (detail(a)) photo(urlOf(detail(a)));
     if (detail(b)) photo(urlOf(detail(b)));
@@ -198,7 +220,7 @@ let fade = 1;
 
 // One step along the run, if the next photos (both layers) are ready.
 function advance(now) {
-  const next = (S.index + S.dir + S.runA.length) % S.runA.length;
+  const next = nextIndex(S.index);
   const f = framesFor(next);
   if (ready(f.a) && ready(f.b)) {
     S.index = next;
@@ -508,10 +530,7 @@ function hud(now) {
   $('#clock-status').classList.toggle('error', clock.source === 'external' && !ext);
   $('#hud-wait').textContent = stalledSince && now - stalledSince > 400 ? 'waiting for photos…' : '';
   syncCamera();
-  if (a) {
-    const slot = slots[currentSlot - 1];
-    $('#place-info').textContent = `${slot ? `Place ${currentSlot}: ${slot.name}. ` : ''}Photo ${A.ids[S.index]}, captured ${day(a.captured_at)}, at ${a.lat.toFixed(5)}, ${a.lng.toFixed(5)}.`;
-  }
+  if (!OUTPUT) { drawStrip(); runFacts(); placeFacts(); }
 }
 
 const day = (ms) => new Date(ms).toISOString().slice(0, 10);
@@ -526,9 +545,11 @@ function clockStatus(ext) {
 // How many upcoming frames (both layers) are already downloaded.
 function buffered() {
   let n = 0;
+  let j = S.index;
   for (let k = 1; k <= AHEAD; k++) {
-    const j = S.index + k * S.dir;
-    if (j < 0 || j >= S.runA.length) break;
+    const next = nextIndex(j);
+    if (!loopSpan() && Math.abs(next - j) !== 1) break;
+    j = next;
     const f = framesFor(j);
     if (!(ready(f.a) && ready(f.b))) break;
     n++;
@@ -551,6 +572,7 @@ async function startRun(sequenceId, imageId, ticket = ++nav) {
     if (ticket !== nav) return;
     S.runA = run;
     S.index = index;
+    if (!OUTPUT) Object.assign(S, { loop: false, loopIn: null, loopOut: null });
     shown = { a: null, b: null };
     renderer.clearLayer('a');
     renderer.clearLayer('b');
@@ -559,7 +581,6 @@ async function startRun(sequenceId, imageId, ticket = ++nav) {
     S.runB = null;
     const a = run.at(index);
     $('#a-info').textContent = `Run from ${day(a.captured_at)}, ${run.length} photos.`;
-    $('#run-info').textContent = `Run from ${day(a.captured_at)}, ${run.length} photos, started at photo ${index + 1}. Mapillary sequence ${run.id}.`;
     status('');
     listOtherRuns();
     prefetch(index);
@@ -591,6 +612,7 @@ function listOtherRuns() {
   const runs = new Map();
   for (const img of near) if (!runs.has(img.sequence)) runs.set(img.sequence, img);
   const list = [...runs.values()].sort((x, y) => x.captured_at - y.captured_at);
+  otherRuns = list;
   $('#runs').replaceChildren(...(list.length ? list.map((img) => {
     const li = document.createElement('li');
     li.innerHTML = `<span>${day(img.captured_at)}</span><span class="dim">${Math.round(img.metres)} m</span>`;
@@ -829,7 +851,12 @@ function sync() {
   setSeg('#bmode', 'b', S.bMode);
   [...$('#modes').children].forEach((b, i) => b.classList.toggle('on', i === S.mode));
   syncCamera();
-  if (!OUTPUT) renderLive();
+  if (!OUTPUT) {
+    renderLive();
+    setSw('#loop', S.loop);
+    $('#loop-in').classList.toggle('on', S.loopIn !== null);
+    $('#loop-out').classList.toggle('on', S.loopOut !== null);
+  }
 }
 
 // Camera values also change by dragging the picture, the wheel and MIDI, so
@@ -925,6 +952,9 @@ window.addEventListener('keydown', (e) => {
   else if (e.code === 'KeyV') toggleRecord();
   else if (e.code === 'Escape') { cancelLearn(); $('#midi-panel').hidden = true; closeProjectMenu(); }
   else if (e.code === 'KeyM' && !OUTPUT) setLearnMode(!learnMode);
+  else if (e.code === 'KeyI' && e.shiftKey && !OUTPUT) toggleLoop();
+  else if (e.code === 'KeyI' && !OUTPUT) setLoopPoint('in');
+  else if (e.code === 'KeyO' && !OUTPUT) setLoopPoint('out');
   else if (e.shiftKey && /^Digit[1-9]$/.test(e.code)) applyPreset(Object.keys(allPresets())[+e.code.slice(5) - 1]);
   else if (e.altKey && /^Digit[1-8]$/.test(e.code)) { e.preventDefault(); storeSlot(+e.code.slice(5)); }
   else if (/^Digit[1-8]$/.test(e.code)) goSlot(+e.code.slice(5));
@@ -1584,7 +1614,7 @@ setInterval(() => {
 // photos, so the output never waits on the editor's screen. Its own channel name,
 // so experiment 3 open in another tab doesn't interfere.
 
-const MIRROR_KEYS = ['bMode', 'delay', 'dir', 'fps', 'mode', 'mix', 'smooth', 'sharp', 'pitch', 'fov', 'follow', 'yawOffset', 'glance', 'sun', 'tempo', 'bpm', 'stepsPerBeat', 'live'];
+const MIRROR_KEYS = ['bMode', 'delay', 'dir', 'fps', 'mode', 'mix', 'smooth', 'sharp', 'pitch', 'fov', 'follow', 'yawOffset', 'glance', 'sun', 'tempo', 'bpm', 'stepsPerBeat', 'live', 'loop', 'loopIn', 'loopOut'];
 const channel = new BroadcastChannel('midimap-editor');
 let posted = '';
 function postState() {
@@ -1825,7 +1855,8 @@ function captureProject(name = project.name) {
     layers: { mode: S.mode, mix: S.mix, smooth: S.smooth, bMode: S.bMode, delay: S.delay, runB: S.bMode === 'run' ? S.runB?.id || null : null },
     effects: Object.fromEntries(Object.keys(neutralLook()).map((k) => [k, look[k]])),
     camera: { fov: S.fov, pitch: S.pitch, follow: S.follow, sun: S.sun, sharp: S.sharp },
-    playback: { dir: S.dir, fps: S.fps, photo: S.runA ? { sequence: S.runA.id, image: S.runA.ids[S.index] } : null, slot: currentSlot },
+    playback: { dir: S.dir, fps: S.fps, photo: S.runA ? { sequence: S.runA.id, image: S.runA.ids[S.index] } : null, slot: currentSlot,
+      loop: S.loopIn !== null ? { on: S.loop, in: S.runA.ids[S.loopIn], out: S.loopOut !== null ? S.runA.ids[S.loopOut] : null } : null },
     tempo: { bpm: S.bpm, stepsPerBeat: S.stepsPerBeat, lock: S.tempo, clock: clock.source },
     audio: { kick: kick.type, volume: kick.volume, offset: kick.offset },
     output: { fullscreen: outFull, display: display?.label || null, syphonFps: lastSyphonFps },
@@ -1874,6 +1905,16 @@ async function goToProjectPhoto(p) {
   const photo = p.playback?.photo;
   if (!photo) return goSlot(p.playback?.slot || START_SLOT);
   await startRun(photo.sequence, photo.image);
+  const loop = p.playback?.loop;
+  if (loop && S.runA?.id === photo.sequence) {
+    // Stored as photo ids, so a loop survives a run that Mapillary has added photos to.
+    const at = (id) => (id ? S.runA.ids.indexOf(id) : -1);
+    if (at(loop.in) >= 0) S.loopIn = at(loop.in);
+    if (at(loop.out) >= 0) S.loopOut = at(loop.out);
+    S.loop = !!loop.on && loopSpanAny();
+    prefetch(S.index);
+    sync();
+  }
   if (p.layers?.bMode === 'run' && p.layers.runB) await useRunB(p.layers.runB, null);
 }
 
@@ -2252,3 +2293,188 @@ if (!OUTPUT) {
   renderLearn();
   Object.assign(window.blend, { profiles, controls, onMidi });
 }
+
+// ---- the run strip, the loop, place details (phase 5) ---------------------------------------
+
+function setLoopPoint(which) {
+  if (!S.runA) return;
+  if (which === 'in') S.loopIn = S.index; else S.loopOut = S.index;
+  if (S.loopIn !== null && S.loopOut !== null && S.loopIn > S.loopOut) [S.loopIn, S.loopOut] = [S.loopOut, S.loopIn];
+  if (loopSpanAny()) S.loop = true;
+  status(S.loop ? `Loop: photos ${S.loopIn + 1} → ${S.loopOut + 1}. Shift+I turns it off.` : `Loop ${which} at photo ${S.index + 1}. Now set the other end (${which === 'in' ? 'O' : 'I'}).`);
+  prefetch(S.index);
+  renderLoop();
+}
+const loopSpanAny = () => S.loopIn !== null && S.loopOut !== null && S.loopOut > S.loopIn;
+
+function toggleLoop() {
+  if (!loopSpanAny()) return status('Set loop in (I) and loop out (O) first.');
+  S.loop = !S.loop;
+  if (S.loop) prefetch(S.index);
+  status(S.loop ? 'Loop on.' : 'Loop off: playing carries on along the run.');
+  renderLoop();
+}
+
+function renderLoop() {
+  setSw('#loop', S.loop);
+  $('#loop-in').classList.toggle('on', S.loopIn !== null);
+  $('#loop-out').classList.toggle('on', S.loopOut !== null);
+  factsKey = '';
+  runFacts();
+  drawStrip();
+}
+
+// Distance along the run between two photos, from the details loaded so far.
+function runMetres(from, to) {
+  let m = 0;
+  let missing = false;
+  for (let i = from; i < to; i++) {
+    const a = S.runA.at(i);
+    const b = S.runA.at(i + 1);
+    if (a && b) m += distance(a, b); else missing = true;
+  }
+  return { m, missing };
+}
+
+let stripColours = null;
+function drawStrip() {
+  const c = $('#strip');
+  if (!c || !c.clientWidth) return; // its tab isn't showing
+  const dpr = devicePixelRatio;
+  const w = Math.round(c.clientWidth * dpr);
+  const h = Math.round(c.clientHeight * dpr);
+  if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+  stripColours ||= Object.fromEntries(['--line', '--line-2', '--hot', '--run', '--live'].map((v) => [v, getComputedStyle(document.documentElement).getPropertyValue(v).trim()]));
+  const g = c.getContext('2d');
+  g.fillStyle = '#0a0a0a';
+  g.fillRect(0, 0, w, h);
+  g.strokeStyle = stripColours['--line-2'];
+  g.lineWidth = dpr;
+  g.strokeRect(dpr / 2, dpr / 2, w - dpr, h - dpr);
+  g.fillStyle = stripColours['--line-2'];
+  for (let k = 1; k < 20; k++) g.fillRect(Math.round((k / 20) * w), h - 6 * dpr, dpr, 6 * dpr);
+  const A = S.runA;
+  if (!A) return;
+  const N = A.length;
+  const x = (i) => ((i + 0.5) / N) * w;
+  const cell = Math.max(dpr, w / N);
+  if (S.loopIn !== null) {
+    const a = x(S.loopIn);
+    const b = S.loopOut !== null ? x(S.loopOut) : a;
+    g.fillStyle = S.loop ? 'rgba(232,168,76,.22)' : 'rgba(232,168,76,.08)';
+    g.fillRect(a, 0, Math.max(dpr, b - a), h);
+    g.fillStyle = stripColours['--hot'];
+    g.fillRect(a - dpr, 0, 2 * dpr, h);
+    if (S.loopOut !== null) g.fillRect(b - dpr, 0, 2 * dpr, h);
+  }
+  // Loaded ahead (green), following the loop if it wraps.
+  g.fillStyle = 'rgba(74,222,128,.55)';
+  let j = S.index;
+  for (let k = buffered(); k > 0; k--) { j = nextIndex(j); g.fillRect(x(j) - cell / 2, 6 * dpr, cell, h - 12 * dpr); }
+  g.fillStyle = stripColours['--live'];
+  g.fillRect(x(S.index) - dpr, 0, 2 * dpr, h);
+}
+
+const COMPASS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
+let factsKey = '';
+function runFacts() {
+  const A = S.runA;
+  const a = A && A.at(S.index);
+  if (!a) {
+    if (A && factsKey !== 'loading') { factsKey = 'loading'; $('#run-facts').innerHTML = '<p class="note">loading this part of the run…</p>'; }
+    return;
+  }
+  const next = A.at(Math.min(A.length - 1, S.index + 1));
+  const heading = Math.round(travelHeading(S.index));
+  const others = otherRuns.length ? `${otherRuns.length} other run${otherRuns.length === 1 ? '' : 's'} within 20 m` : 'no other runs within 20 m';
+  const key = `${A.id}:${S.index}:${others}:${S.loopIn}:${S.loopOut}`;
+  if (key === factsKey) return;
+  factsKey = key;
+  $('#strip-end').textContent = `${A.length}`;
+  if (loopSpanAny()) {
+    const { m, missing } = runMetres(S.loopIn, S.loopOut);
+    $('#strip-loop').textContent = `loop ${S.loopIn + 1} → ${S.loopOut + 1} · ${S.loopOut - S.loopIn + 1} photos · ${missing ? '≈ ' : ''}${m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`}`;
+    if (missing) A.ensure(S.loopIn, S.loopOut + 1).then(() => { factsKey = ''; }).catch(() => {});
+  } else $('#strip-loop').textContent = S.loopIn !== null ? `loop in at ${S.loopIn + 1}: set out (O)` : 'I · O set a loop';
+  const fact = (label, text) => `<div><span>${label}</span>${text}</div>`;
+  $('#run-facts').innerHTML =
+    fact('run', `${day(a.captured_at)} · ${A.length} photos`) +
+    fact('here', `photo ${S.index + 1} · ${a.lat.toFixed(5)}, ${a.lng.toFixed(5)}`) +
+    fact('heading', `${heading}° ${COMPASS[Math.round(heading / 45) % 8]}${next && next !== a ? ` · ${distance(a, next).toFixed(1)} m to the next` : ''}`) +
+    fact('layer b candidates', others);
+}
+
+// The credit Mapillary's licence asks for: fetched once per photo, only while the tab shows.
+const credits = new Map();
+let placeKey = '';
+function placeFacts() {
+  const A = S.runA;
+  if (!A || !$('#place-facts').clientWidth) return;
+  const id = A.ids[S.index];
+  const a = A.at(S.index);
+  if (!a) return;
+  if (!credits.has(id)) {
+    credits.set(id, null);
+    graph(id, { fields: 'creator,make,model,camera_type' }).then((d) => { credits.set(id, d); placeKey = ''; }).catch(() => credits.set(id, { failed: true }));
+  }
+  const cr = credits.get(id);
+  const key = `${id}:${!!cr}:${currentSlot}:${otherRuns.length}`;
+  if (key === placeKey) return;
+  placeKey = key;
+  const slot = slots[currentSlot - 1];
+  if (document.activeElement !== $('#place-name')) {
+    $('#place-name').value = slot ? slot.name : '';
+    $('#place-name').placeholder = slot ? '' : 'not on a pad yet: store it on one first';
+    $('#place-name').disabled = !slot;
+  }
+  $('#place-slot').replaceChildren(...slots.map((x, i) => Object.assign(document.createElement('option'), { value: String(i + 1), textContent: `${i + 1} · ${x.name}` })));
+  $('#place-slot').value = String(currentSlot || 1);
+  const when = new Date(a.captured_at);
+  const who = cr === null ? 'asking Mapillary…' : cr.failed ? 'not available' : cr.creator?.username || 'not given';
+  const known = (x) => x && !/^(none|unknown)$/i.test(x);
+  const camera = cr && !cr.failed ? [cr.make, cr.model].filter(known).join(' ') || (known(cr.camera_type) ? cr.camera_type : '') : '';
+  const dates = otherRuns.length ? `${otherRuns.length} other run${otherRuns.length === 1 ? '' : 's'}: ${day(otherRuns[0].captured_at)} … ${day(otherRuns.at(-1).captured_at)}` : 'none within 20 m';
+  const fact = (label, html) => `<div><span>${label}</span>${html}</div>`;
+  $('#place-facts').innerHTML =
+    fact('captured', `${when.toISOString().slice(0, 10)} · ${when.toTimeString().slice(0, 5)}`) +
+    fact('photographer', `${who}${camera ? ` · ${camera}` : ''}`) +
+    fact('licence', 'Mapillary · CC BY-SA 4.0') +
+    fact('other dates here', dates);
+  $('#place-note').innerHTML = `Photo ${id} · <a href="https://www.mapillary.com/app/?pKey=${id}&focus=photo" target="_blank" rel="noopener">open it on mapillary.com</a>. Credit the photographer and Mapillary when you show recordings.`;
+}
+
+if (!OUTPUT) {
+  $('#loop-in').addEventListener('click', () => setLoopPoint('in'));
+  $('#loop-out').addEventListener('click', () => setLoopPoint('out'));
+  onSwitch('#loop', toggleLoop);
+  $('#place-name').addEventListener('change', (e) => {
+    const slot = slots[currentSlot - 1];
+    const v = e.target.value.trim();
+    if (slot && v) { slot.name = v; saveSlots(); status(`Renamed place ${currentSlot} to "${v}".`); }
+    e.target.blur();
+  });
+  $('#place-name').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === 'Escape') e.target.blur(); });
+  $('#place-slot').addEventListener('change', (e) => e.target.blur());
+  $('#place-store').addEventListener('click', () => { storeSlot(+$('#place-slot').value); placeKey = ''; });
+  // Click or drag the strip to go anywhere in the run.
+  const strip = $('#strip');
+  const goTo = (e) => {
+    if (!S.runA) return;
+    const r = strip.getBoundingClientRect();
+    S.index = Math.max(0, Math.min(S.runA.length - 1, Math.floor(((e.clientX - r.left) / r.width) * S.runA.length)));
+    S.runA.ensure(S.index - 5, S.index + 10).catch(() => {});
+    drawStrip();
+  };
+  strip.addEventListener('pointerdown', (e) => { if (learnMode) return; strip.setPointerCapture(e.pointerId); goTo(e); });
+  strip.addEventListener('pointermove', (e) => { if (strip.hasPointerCapture(e.pointerId)) goTo(e); });
+  strip.addEventListener('pointerup', () => { if (S.runA) prefetch(S.index); });
+  for (const t of document.querySelectorAll('#below-tabs [data-below]')) t.addEventListener('click', () => { factsKey = ''; placeKey = ''; });
+  controls.set('loop', { id: 'loop', label: 'loop on/off', kind: 'toggle', get: () => S.loop, flip: toggleLoop });
+  controls.set('loop.in', { id: 'loop.in', label: 'loop in (here)', kind: 'trigger', run: () => setLoopPoint('in') });
+  controls.set('loop.out', { id: 'loop.out', label: 'loop out (here)', kind: 'trigger', run: () => setLoopPoint('out') });
+  $('#loop').dataset.learn = 'loop';
+  $('#loop-in').dataset.learn = 'loop.in';
+  $('#loop-out').dataset.learn = 'loop.out';
+  renderLoop();
+}
+if (!OUTPUT) Object.assign(window.blend, { runFacts, drawStrip }); // for tests and the console

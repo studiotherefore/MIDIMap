@@ -24,8 +24,9 @@ Three parts, one codebase:
 4. **The editor** (`editor/`, at `/editor/`): the main tool being built from
    experiment 3, following `EDITOR-PLAN.md` (layout C from
    `mockups/editor.html`, Drift's look). Phases 1 (layout + Mapillary, parity
-   with experiment 3), 2 (live, output window, app), 3 (projects) and 4
-   (MIDI panel, controller profiles) are done; 5–8 are in the plan.
+   with experiment 3), 2 (live, output window, app), 3 (projects), 4
+   (MIDI panel, controller profiles) and 5 (run strip, loop, place details)
+   are done; 6–8 are in the plan.
 
 ## The author and how to work with them
 
@@ -253,6 +254,20 @@ stay frozen (experiment 3 started as a copy of 2).
   not on screen. Profiles sync via `/api/midi` (D1 `midi_profiles`,
   migration 0003; `ProjectStore` is reused with options). A project stores
   only the profile name. 37 checks with fake devices and a fake sync service.
+- Phase 5, **run strip and loop**: `S.loop/loopIn/loopOut` (indexes; mirrored;
+  cleared by a new run; projects store them as photo ids). `nextIndex()` wraps
+  inside the loop in either direction; `advance`, `prefetch` and `buffered`
+  use it, so photos past the wrap load early. Keys I / O / Shift+I; buttons
+  and a switch in the transport; all three MIDI-learnable. "this run":
+  `#strip` canvas (red = here, green = loaded ahead, amber = loop; click or
+  drag to jump; `ensure` while dragging, `prefetch` on release), loop length
+  in photos and metres (`runMetres`), facts (date, position, heading,
+  spacing, other runs within 20 m). "this place": rename the current pad,
+  store the playing photo on any pad, captured date/time, photographer and
+  camera (Graph API `creator,make,model,camera_type`, once per photo, only
+  while the tab shows; "none" hidden), licence, other dates, mapillary.com
+  link. After a jump the facts say "loading this part of the run…" until the
+  details arrive. 19 checks on real Mapillary.
 - Verified 2026-10-01 with Playwright: 42 parity checks (keys, mouse, fake
   MiniLab, learn, looks with a faked API, output mirroring, recording), the
   clock and kick timing tests.

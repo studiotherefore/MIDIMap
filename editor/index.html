@@ -108,6 +108,9 @@
       <button id="step-back" title="←">◀ step</button><button id="step-fwd" title="→">step ▶</button>
       <span class="seg" id="direction" title="R"><button data-dir="1">forward</button><button data-dir="-1">backward</button></span>
       <span class="sep"></span>
+      <button id="loop-in" title="loop in (I)">in</button><button id="loop-out" title="loop out (O)">out</button>
+      <span class="sw" id="loop" role="switch" tabindex="0" title="loop on/off (Shift+I)"><i></i>loop</span>
+      <span class="sep"></span>
       <span class="speed" id="speed"><span class="dim">speed</span> <input type="range" id="fps" min="0.5" max="12" step="0.5" value="3"> <span id="fps-val">3</span> frames/s</span>
       <span class="dim" id="speed-locked" hidden>speed follows the tempo</span>
     </div>
@@ -118,12 +121,17 @@
         <button data-below="seq">sequence <span class="dim">· experiment first</span></button>
       </div>
       <div class="inner" data-below-panel="run">
-        <p id="run-info" class="note">No run playing yet.</p>
-        <p class="note later">The run strip (where you are, what's loaded, loop in/out) comes in phase 5.</p>
+        <canvas id="strip" title="click or drag to go anywhere in the run"></canvas>
+        <div class="scale"><span id="strip-start">photo 1</span><span id="strip-loop"></span><span id="strip-end"></span></div>
+        <div class="facts" id="run-facts"><p class="note">No run playing yet.</p></div>
       </div>
       <div class="inner" data-below-panel="place" hidden>
-        <p id="place-info" class="note"></p>
-        <p class="note later">Editable place details come in phase 5. For now: double-click a pad's name to rename it; Option+1–8 stores the playing photo.</p>
+        <div class="facts place">
+          <div class="wide"><span>name</span><input id="place-name" type="text" maxlength="80" aria-label="Place name"></div>
+          <div><span>on pad</span><span class="inline"><select id="place-slot" aria-label="Pad"></select><button id="place-store">store playing photo here</button></span></div>
+        </div>
+        <div class="facts" id="place-facts"></div>
+        <p class="note" id="place-note"></p>
       </div>
       <div class="inner" data-below-panel="seq" hidden>
         <p class="note later">How sequences are recorded and edited is still open: each approach gets its own experiment first, then the chosen one lands here.</p>
@@ -230,6 +238,7 @@
       <table class="keys">
         <tr><td>Space · ← →</td><td>play/pause · step a photo</td></tr>
         <tr><td>R</td><td>forward / backward</td></tr>
+        <tr><td>I · O · Shift+I</td><td>loop in · loop out (here) · loop on/off; click or drag the run strip to jump</td></tr>
         <tr><td>↑ ↓ · drag · wheel</td><td>look up · horizon · look around · zoom</td></tr>
         <tr><td>1–8 · Option+1–8</td><td>go to a place · store the playing photo there</td></tr>
         <tr><td>P</td><td>show / hide the places row</td></tr>
