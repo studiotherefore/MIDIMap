@@ -10,6 +10,7 @@ import { FxChain, PARAMS, PRESETS, neutralLook } from './fx.js';
 import { PresetSync } from '../experiments/lib/presets-sync.js';
 import { Kick, KICKS } from './kick.js';
 import { ProjectStore, PROJECT_VERSION, migrate, fingerprint, download } from './project.js';
+import { Profiles, parse, srcOf, describe, shortName, MINILAB, PROFILE_VERSION } from './midi.js';
 import { DEFAULT_LOCATIONS } from '../js/locations.js';
 
 const $ = (s) => document.querySelector(s);
@@ -739,6 +740,7 @@ function renderSlots() {
     const n = i + 1;
     const pad = document.createElement('div');
     pad.className = `slot${n === currentSlot ? ' on' : ''}`;
+    pad.dataset.learn = `place.${n}`;
     pad.title = `Key ${n}`;
     pad.innerHTML = `<span class="n"><b>${n}</b><span class="name" spellcheck="false" title="Double-click to rename"></span></span>` +
       `<span class="src">${slot.sequence ? 'mapillary · exact photo' : 'mapillary · nearest run'}</span>` +
@@ -766,6 +768,7 @@ function renderSlots() {
     return pad;
   }));
   markSlots();
+  setTimeout(() => renderLearn(), 0); // after the first render, once the MIDI code has loaded
 }
 
 // Mark the playing place without rebuilding the pads (a rebuild would swallow a double-click).
@@ -921,6 +924,7 @@ window.addEventListener('keydown', (e) => {
   else if (e.code === 'KeyS') toggleSun();
   else if (e.code === 'KeyV') toggleRecord();
   else if (e.code === 'Escape') { cancelLearn(); $('#midi-panel').hidden = true; closeProjectMenu(); }
+  else if (e.code === 'KeyM' && !OUTPUT) setLearnMode(!learnMode);
   else if (e.shiftKey && /^Digit[1-9]$/.test(e.code)) applyPreset(Object.keys(allPresets())[+e.code.slice(5) - 1]);
   else if (e.altKey && /^Digit[1-8]$/.test(e.code)) { e.preventDefault(); storeSlot(+e.code.slice(5)); }
   else if (/^Digit[1-8]$/.test(e.code)) goSlot(+e.code.slice(5));
@@ -952,70 +956,219 @@ $('#view').addEventListener('pointermove', (e) => {
 $('#view').addEventListener('pointerup', () => { drag = null; });
 $('#view').addEventListener('wheel', (e) => { e.preventDefault(); S.fov = Math.max(30, Math.min(130, S.fov + e.deltaY * 0.05)); sync(); }, { passive: false });
 
-// ---- MIDI (fixed mapping for the Arturia MiniLab 3) -------------------------------------
+// ---- MIDI: controller profiles, learn mode (phase 4; profiles in midi.js) ----------------
+// Every control MIDI can reach is in `controls` (built at the end of this file).
+// A message goes to the bindings of the current profile that match it; the most
+// specific win (a learned key beats "any key"). Learn mode (M): click a control,
+// move a knob, pad or key. Clock messages go to onClock.
 
-function onMidi([st, a, b], t = performance.now(), src = { id: '', name: 'MIDI' }) {
-  if (st >= 0xf0) return onClock([st, a, b], t, src);
-  const type = st & 0xf0;
-  if (type === 0xb0 && fxMidi(`${(st & 0x0f) + 1}:${a}`, b)) return;
-  if (type === 0xb0) {
-    const v = b / 127;
-    if (a === 1) S.pitch = v * 90;                               // mod strip: horizon → sky
-    else if (a === 74) S.mix = v;                                // knob 1
-    else if (a === 71) { S.delay = Math.round(v * 40); shown.b = null; } // knob 2
-    else if (a === 76) S.smooth = v;                             // knob 3
-    else if (a === 77) {                                         // knob 4: speed, or BPM when locked to tempo
-      if (S.tempo) setBpm(40 + v * 160);
-      else S.fps = Math.max(0.5, Math.round(v * 24) / 2);
-    }
-    else if (a === 114) S.yawOffset += (b - 64) * 3;             // main knob (endless): turn
-    else if (a === 82) S.fov = 30 + v * 100;                     // fader 1
-    else return;
-    sync();
-  } else if (type === 0xe0) {
-    S.glance = (((b << 7) | a) / 16383 - 0.5) * 180;             // pitch strip: glance ±90°, springs back
-  } else if (type === 0xc0) {
-    if (a < SLOT_COUNT) goSlot(a + 1);                           // pads 1–8 (program changes): place slots
-  } else if (type === 0x90 && b > 0 && !S.playing) {
-    step(S.dir);                                                 // keys: step a frame
+const profiles = new Profiles();
+const controls = new Map();   // id → { id, label, kind: range|toggle|trigger|choice|turn|glance, … }
+const lastCC = new Map();     // last value per CC source, to see a button's press (rising past 64)
+let armed = null;             // the control waiting for a knob in learn
+let learnMode = false;        // M: every mappable control is outlined; click one to arm it
+let justLearned = null;       // { src, to, values, at }: watch a few more values to spot an endless knob
+const devices = new Map();    // input id → { name, hit }
+let lastMessage = '';
+
+const wild = (src) => src.split('*').length - 1;
+
+function onMidi(data, t = performance.now(), src = { id: '', name: 'MIDI' }) {
+  if (data[0] >= 0xf0) return onClock(data, t, src);
+  const m = parse(data);
+  if (!m) return;
+  const d = devices.get(src.id);
+  if (d) d.hit = performance.now();
+  lastMessage = `${describe(srcOf(m))} = ${m.type === 'pb' ? m.v14 : m.v} · ${src.name}`;
+  if (m.type === 'off') return;
+  if (armed) return learnFrom(m);
+  watchLearned(m);
+  const found = profiles.find(m);
+  const fewest = Math.min(...found.map((b) => wild(b.src)));
+  for (const b of found) {
+    if (wild(b.src) !== fewest) continue;
+    const c = controls.get(b.to);
+    if (c) applyBinding(c, b, m);
   }
+  if (m.type === 'cc') lastCC.set(srcOf(m), m.v);
+}
+
+function applyBinding(c, b, m) {
+  const v01 = m.type === 'pb' ? m.v14 / 16383 : m.v / 127;
+  const rising = m.type === 'cc' && m.v >= 64 && (lastCC.get(srcOf(m)) ?? 0) < 64;
+  const pressed = m.type === 'note' || m.type === 'pc' || rising;
+  const asButton = m.type !== 'cc' && m.type !== 'pb' ? true : b.mode === 'press';
+  const clamp = (v, lo, hi) => Math.max(Math.min(lo, hi), Math.min(Math.max(lo, hi), v));
+  switch (c.kind) {
+    case 'range': {
+      const [lo, hi] = b.range || [c.min, c.max];
+      if (asButton) { if (pressed) c.set(c.get() > (lo + hi) / 2 ? lo : hi); } // a pad on a slider: jump end to end
+      else if (b.mode === 'rel') c.set(clamp(c.get() + ((m.v - 64) * (hi - lo)) / 100, lo, hi));
+      else c.set(lo + v01 * (hi - lo));
+      break;
+    }
+    case 'toggle':
+      if (asButton || b.mode !== 'abs') { if (pressed) c.flip(); } else if ((v01 >= 0.5) !== !!c.get()) c.flip();
+      break;
+    case 'trigger':
+      if (pressed) c.run();
+      break;
+    case 'choice': {
+      const o = c.options;
+      if (asButton) { if (pressed) c.set(o[(o.indexOf(c.get()) + 1) % o.length]); } else c.set(o[Math.min(o.length - 1, Math.floor(v01 * o.length))]);
+      break;
+    }
+    case 'turn':
+      if (b.mode === 'abs') S.yawOffset = v01 * 360 - 180; else S.yawOffset += (m.v - 64) * 3;
+      break;
+    case 'glance':
+      S.glance = (v01 - 0.5) * 180;
+      break;
+  }
+}
+
+// ---- learn ----
+
+function arm(id) {
+  armed = armed === id ? null : id;
+  const c = controls.get(armed);
+  if (c) status(`Learning "${c.label}": move a knob, fader, pad or key. Esc cancels.`);
+  renderLearn();
+}
+
+function learnFrom(m) {
+  const c = controls.get(armed);
+  const src = srcOf(m);
+  let mode;
+  if (m.type === 'cc') mode = c.kind === 'trigger' || c.kind === 'toggle' ? 'press' : c.kind === 'turn' ? 'rel' : 'abs';
+  if (m.type === 'pb') mode = 'abs';
+  profiles.bind(armed, src, mode);
+  justLearned = { src, to: armed, values: [m.v], at: performance.now() };
+  if (m.type === 'cc') lastCC.set(src, m.v);
+  status(`Learned: ${describe(src)} → ${c.label}.${learnMode ? ' Click another control, or M to finish.' : ''}`);
+  armed = null;
+  renderLearn();
+}
+
+// An endless knob sends 64 ± a few steps; a normal one sweeps 0–127. Turning a
+// knob just after learning it tells them apart.
+function watchLearned(m) {
+  const j = justLearned;
+  if (!j || m.type !== 'cc' || srcOf(m) !== j.src) return;
+  if (performance.now() - j.at > 1500) { justLearned = null; return; }
+  j.values.push(m.v);
+  const c = controls.get(j.to);
+  if (j.values.length >= 4 && j.values.every((v) => v >= 58 && v <= 70) && c && (c.kind === 'range' || c.kind === 'turn')) {
+    const b = profiles.profile.bindings.find((x) => x.src === j.src && x.to === j.to);
+    if (b && b.mode !== 'rel') {
+      b.mode = 'rel';
+      profiles.push();
+      status(`"${c.label}": that's an endless knob (∞), so turning it nudges the value.`);
+      renderMidiPanel();
+    }
+    justLearned = null;
+  }
+}
+
+function setLearnMode(on) {
+  learnMode = on;
+  if (!on) armed = null;
+  document.body.classList.toggle('midi-learn', on);
+  status(on ? 'MIDI learn: click any outlined control, then move a knob, fader, pad or key. M or Esc to finish.' : 'MIDI learn finished.');
+  renderLearn();
+}
+
+function cancelLearn() {
+  if (armed) { armed = null; renderLearn(); status('Learn cancelled.'); } else if (learnMode) setLearnMode(false);
+}
+
+if (!OUTPUT) {
+  // In learn mode a click arms the control instead of using it.
+  const learnTarget = (e) => ((learnMode || armed) && !e.target.closest('#midi-panel') ? e.target.closest('[data-learn]') : null);
+  document.addEventListener('click', (e) => {
+    const el = learnMode && learnTarget(e);
+    if (!el) return;
+    e.preventDefault();
+    e.stopPropagation();
+    arm(el.dataset.learn);
+  }, true);
+  for (const type of ['pointerdown', 'mousedown', 'input', 'change']) {
+    document.addEventListener(type, (e) => { if (learnMode && learnTarget(e)) { e.preventDefault(); e.stopPropagation(); } }, true);
+  }
+}
+
+// Outline, mark and label every mappable control (data-learn) with its bindings.
+function renderLearn() {
+  for (const el of document.querySelectorAll('[data-learn]')) {
+    const bs = profiles.bindingsFor(el.dataset.learn);
+    if (bs.length) el.dataset.bound = bs.map((b) => shortName(b.src)).join(' '); else delete el.dataset.bound;
+    el.classList.toggle('armed', el.dataset.learn === armed);
+  }
+  $('#midi-learn')?.classList.toggle('on', learnMode);
+  if (rows.size) refreshEffects();
+  placeBadges();
+  renderMidiPanel();
+}
+
+// In learn mode, small labels show what each control is mapped to.
+function placeBadges() {
+  const layer = $('#learn-layer');
+  if (!layer) return;
+  if (!learnMode) { layer.replaceChildren(); return; }
+  const seen = new Set();
+  // Effect and kick rows show their mapping in the row itself, so they get no badge.
+  layer.replaceChildren(...[...document.querySelectorAll('[data-learn][data-bound]:not(.fx-row)')].filter((el) => {
+    const r = el.getBoundingClientRect();
+    if (!r.width || seen.has(el.dataset.learn + r.top)) return false;
+    seen.add(el.dataset.learn + r.top);
+    return true;
+  }).map((el) => {
+    const r = el.getBoundingClientRect();
+    return Object.assign(document.createElement('span'), { className: 'badge', textContent: el.dataset.bound, style: `left:${r.right - 2}px;top:${r.top - 7}px` });
+  }));
+}
+
+// ---- devices ----
+
+function attachMidi(access) {
+  const known = new Set();
+  const attach = () => {
+    const names = [];
+    for (const input of access.inputs.values()) {
+      if (input.state === 'disconnected') { devices.delete(input.id); continue; }
+      input.onmidimessage = (m) => onMidi(m.data, m.timeStamp || performance.now(), input);
+      if (!devices.has(input.id)) devices.set(input.id, { name: input.name, hit: 0 });
+      names.push(input.name);
+    }
+    // A controller with its own profile brings it in (the one just plugged in first).
+    const fresh = names.filter((n) => !known.has(n));
+    known.clear();
+    for (const n of names) known.add(n); // only what's connected now, so a replugged controller counts as new
+    const p = fresh.length ? profiles.forDevices(fresh) : null;
+    if (p && p.name !== profiles.current) {
+      profiles.use(p.name);
+      status(`MIDI: using the "${p.name}" profile for ${names.join(', ')}.`);
+    }
+    $('#status-midi').textContent = names.length ? `midi: ${names.join(', ')} · ${profiles.current}` : 'midi: none';
+    $('#midi-dot').classList.toggle('ok', names.length > 0);
+    renderLearn();
+  };
+  access.onstatechange = attach;
+  attach();
 }
 
 if (OUTPUT) {
   // The control window handles MIDI; the output only mirrors it.
 } else if (navigator.requestMIDIAccess) {
-  navigator.requestMIDIAccess().then((access) => {
-    const attach = () => {
-      const names = [];
-      for (const input of access.inputs.values()) {
-        if (input.state === 'disconnected') continue;
-        input.onmidimessage = (m) => onMidi(m.data, m.timeStamp || performance.now(), input);
-        names.push(input.name);
-      }
-      $('#midi-status').textContent = names.length ? `MIDI: ${names.join(', ')}` : 'MIDI: no controller connected (keyboard and mouse still work)';
-      $('#status-midi').textContent = names.length ? `midi: ${names.join(', ')}` : 'midi: none';
-      $('#midi-dot').classList.toggle('ok', names.length > 0);
-    };
-    access.onstatechange = attach;
-    attach();
-  }).catch(() => { $('#midi-status').textContent = 'MIDI: permission not given (keyboard and mouse still work)'; });
+  navigator.requestMIDIAccess().then(attachMidi).catch(() => { $('#midi-devices').textContent = 'MIDI permission not given (keyboard and mouse still work).'; });
 } else {
-  $('#midi-status').textContent = 'MIDI: not available in this browser (use Chrome)';
+  $('#midi-devices').textContent = 'MIDI is not available in this browser (use Chrome).';
 }
 
 // ---- effects panel, presets and MIDI learn ------------------------------------------------
 
 const rows = new Map(); // param id -> { row, input, val, bound }
 const extras = new Map(); // learnable controls outside the look (kick): id -> { row, input, val, bound, p, get, set }
-const LEARN_KEY = 'midimap.fx.learn.v1';
-// Guessed defaults: Arturia's factory numbers for knobs 5–8 and faders 2–4. Learn overrides them.
-let fxBindings = { '1:93': 'echo', '1:18': 'bloom', '1:19': 'recall', '1:16': 'tint', '1:83': 'blur', '1:85': 'smear', '1:17': 'grain' };
-try {
-  fxBindings = JSON.parse(localStorage.getItem(LEARN_KEY)) || fxBindings;
-} catch {
-  /* keep defaults */
-}
-let learning = null;
 const fmt = (p, v) => (p.step >= 1 ? String(Math.round(v)) : v.toFixed(2));
 
 function buildEffects() {
@@ -1031,6 +1184,7 @@ function buildEffects() {
     }
     const row = document.createElement('div');
     row.className = 'fx-row';
+    row.dataset.learn = `fx.${p.id}`;
     // A 0/1 parameter is a choice between two things, so it gets two buttons, not a slider.
     const choice = p.step >= 1 && p.max === 1 && p.min === 0;
     const [nameText, a, b] = choice ? p.label.split(/: | ↔ /) : [p.label.replace(/ \(.*\)$/, '')];
@@ -1046,7 +1200,7 @@ function buildEffects() {
     } else {
       for (const btn of row.querySelectorAll('[data-v]')) btn.addEventListener('click', () => setParam(p.id, +btn.dataset.v));
     }
-    row.querySelector('.learn').addEventListener('click', () => startLearn(p.id));
+    row.querySelector('.learn').addEventListener('click', () => arm(`fx.${p.id}`));
     section.append(row);
     rows.set(p.id, { row, input, seg: row.querySelector('.seg'), val: row.querySelector('.val'), bound: row.querySelector('.bound'), p });
     if (p.id === 'tint') {
@@ -1059,12 +1213,13 @@ function buildEffects() {
   const kickRow = (id, label, p, get, set, unit = '') => {
     const row = document.createElement('div');
     row.className = 'fx-row';
+    row.dataset.learn = id;
     row.innerHTML = `<div class="name"><span>${label}</span><span class="bound"></span></div>` +
       `<input type="range" min="${p.min}" max="${p.max}" step="${p.step}"><span class="val"></span><button class="learn">learn</button>`;
     const input = row.querySelector('input');
     input.addEventListener('input', () => { set(+input.value); refreshEffects(); });
     input.addEventListener('dblclick', () => { set(p.neutral); refreshEffects(); });
-    row.querySelector('.learn').addEventListener('click', () => startLearn(id));
+    row.querySelector('.learn').addEventListener('click', () => arm(id));
     $('#kick-params').append(row);
     extras.set(id, { row, input, val: row.querySelector('.val'), bound: row.querySelector('.bound'), p: { ...p, unit }, get, set });
   };
@@ -1084,8 +1239,7 @@ function setParam(id, v) {
 }
 
 function refreshEffects() {
-  const byParam = {};
-  for (const [key, id] of Object.entries(fxBindings)) (byParam[id] ||= []).push(key);
+  const boundTo = (id) => (armed === id ? 'move a control…' : profiles.bindingsFor(id).map((b) => shortName(b.src)).join(' '));
   for (const [id, r] of rows) {
     if (r.input) {
       r.input.value = look[id];
@@ -1094,15 +1248,15 @@ function refreshEffects() {
       for (const btn of r.seg.children) btn.classList.toggle('on', +btn.dataset.v === Math.round(look[id]));
     }
     r.row.classList.toggle('changed', look[id] !== r.p.neutral);
-    r.row.classList.toggle('learning', learning === id);
-    r.bound.textContent = learning === id ? 'move a control…' : (byParam[id] || []).map((k) => `CC ${k.split(':')[1]}`).join(', ');
+    r.row.classList.toggle('learning', armed === `fx.${id}`);
+    r.bound.textContent = boundTo(`fx.${id}`);
   }
   for (const [id, r] of extras) {
     r.input.value = r.get();
     r.val.textContent = fmt(r.p, r.get()) + r.p.unit;
     r.row.classList.toggle('changed', r.get() !== r.p.neutral);
-    r.row.classList.toggle('learning', learning === id);
-    r.bound.textContent = learning === id ? 'move a control…' : (byParam[id] || []).map((k) => `CC ${k.split(':')[1]}`).join(', ');
+    r.row.classList.toggle('learning', armed === id);
+    r.bound.textContent = boundTo(id);
   }
   const hex = (x) => Math.round(x * 255).toString(16).padStart(2, '0');
   $('#tint-colour').value = `#${hex(look.tint_r)}${hex(look.tint_g)}${hex(look.tint_b)}`;
@@ -1209,6 +1363,7 @@ function renderPresets() {
     b.textContent = `${i + 1} ${name}`;
     b.title = (i < 9 ? `Shift+${i + 1}` : '') + (name in local ? ' · saved in this browser only' : '');
     if (name in local) b.classList.add('local');
+    if (i < 9) b.dataset.learn = `look.${i + 1}`;
     b.addEventListener('click', () => applyPreset(name));
     if (name in mine) {
       const x = document.createElement('span');
@@ -1356,44 +1511,6 @@ if (!OUTPUT) {
   presetSync.init().then(refreshPresets);
   setInterval(refreshPresets, 30000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshPresets(); });
-}
-
-function startLearn(id) {
-  learning = learning === id ? null : id;
-  refreshEffects();
-}
-
-function cancelLearn() {
-  learning = null;
-  refreshEffects();
-}
-
-// Returns true if an effect took this controller message.
-function fxMidi(key, value) {
-  if (learning) {
-    for (const k of Object.keys(fxBindings)) if (fxBindings[k] === learning) delete fxBindings[k];
-    fxBindings[key] = learning;
-    learning = null;
-    try {
-      localStorage.setItem(LEARN_KEY, JSON.stringify(fxBindings));
-    } catch {
-      /* this session only */
-    }
-    refreshEffects();
-    return true;
-  }
-  const id = fxBindings[key];
-  if (!id) return false;
-  const x = extras.get(id);
-  if (x) {
-    x.set(x.p.min + Math.round(((value / 127) * (x.p.max - x.p.min)) / x.p.step) * x.p.step);
-    refreshEffects();
-    return true;
-  }
-  if (!rows.has(id)) return false;
-  const p = rows.get(id).p;
-  setParam(id, p.step >= 1 && p.max === 1 ? Math.round(value / 127) : p.min + (value / 127) * (p.max - p.min));
-  return true;
 }
 
 buildEffects();
@@ -1695,7 +1812,7 @@ const DEFAULT_PROJECT = () => ({
   tempo: { bpm: 120, stepsPerBeat: 1, lock: false, clock: 'internal' },
   audio: { kick: 'off', volume: 0.5, offset: 0 },
   output: { fullscreen: true, display: null, syphonFps: 30 },
-  midi: { profile: 'default' },
+  midi: { profile: null },
 });
 
 function captureProject(name = project.name) {
@@ -1712,7 +1829,7 @@ function captureProject(name = project.name) {
     tempo: { bpm: S.bpm, stepsPerBeat: S.stepsPerBeat, lock: S.tempo, clock: clock.source },
     audio: { kick: kick.type, volume: kick.volume, offset: kick.offset },
     output: { fullscreen: outFull, display: display?.label || null, syphonFps: lastSyphonFps },
-    midi: { profile: 'default' },
+    midi: { profile: profiles.current },
   };
 }
 
@@ -1745,6 +1862,7 @@ function applySettings(p) {
   const match = displays.find((x) => x.label === O.display);
   if (match) $('#out-display').value = String(match.id);
   if (APP && O.syphonFps && O.syphonFps !== lastSyphonFps) APP.setSyphonFps(O.syphonFps);
+  if (p.midi?.profile && p.midi.profile !== profiles.current && profiles.use(p.midi.profile)) status(`MIDI profile: ${p.midi.profile}.`);
   renderSlots();
   renderPresets();
   refreshEffects();
@@ -1935,3 +2053,202 @@ if (!OUTPUT) {
 // click or key press: the first one starts it.
 if (!OUTPUT) for (const type of ['pointerdown', 'keydown']) addEventListener(type, () => { if (kick.ctx?.state === 'suspended') kick.ctx.resume(); }, { capture: true });
 if (!OUTPUT) Object.assign(window.blend, { project, captureProject, fingerprint }); // for tests and the console
+
+// ---- the controls MIDI can reach (phase 4) ------------------------------------------------
+// id → what it is and how to set it. The ids are what profiles store, and what
+// [data-learn] marks on screen.
+
+function buildControls() {
+  const range = (id, label, min, max, get, set) => controls.set(id, { id, label, kind: 'range', min, max, get, set });
+  const toggle = (id, label, get, flip) => controls.set(id, { id, label, kind: 'toggle', get, flip });
+  const trigger = (id, label, run) => controls.set(id, { id, label, kind: 'trigger', run });
+  const choice = (id, label, options, get, set) => controls.set(id, { id, label, kind: 'choice', options, get, set });
+
+  // layers & blend
+  range('mix', 'blend mix', 0, 1, () => S.mix, (v) => { S.mix = v; sync(); });
+  range('smooth', 'cut ↔ dissolve', 0, 1, () => S.smooth, (v) => { S.smooth = v; sync(); });
+  range('delay', 'layer b delay', 0, 40, () => S.delay, (v) => { S.delay = Math.round(v); shown.b = null; sync(); });
+  choice('bmode', 'layer b', ['delay', 'run', 'off'], () => S.bMode, (v) => { if (v !== 'run' || S.runB) setBMode(v); });
+  choice('blend', 'blend mode', BLEND_MODES.map((_, i) => i), () => S.mode, (v) => { S.mode = v; sync(); });
+  trigger('blend.next', 'next blend mode', () => { S.mode = (S.mode + 1) % BLEND_MODES.length; sync(); });
+  trigger('blend.prev', 'previous blend mode', () => { S.mode = (S.mode + BLEND_MODES.length - 1) % BLEND_MODES.length; sync(); });
+  // playback
+  trigger('play', 'play / pause', togglePlay);
+  trigger('step.fwd', 'step forward', () => step(1));
+  trigger('step.back', 'step back', () => step(-1));
+  trigger('step.paused', 'step (while paused)', () => { if (!S.playing) step(S.dir); });
+  choice('dir', 'direction', [1, -1], () => S.dir, (v) => { S.dir = v; shown.b = null; sync(); });
+  range('speed', 'speed (BPM when locked)', 0, 1, () => (S.tempo ? (S.bpm - 40) / 160 : S.fps / 12),
+    (v) => { if (S.tempo) setBpm(40 + v * 160); else { S.fps = Math.max(0.5, Math.round(v * 24) / 2); sync(); } });
+  // tempo
+  range('bpm', 'BPM', 40, 200, () => S.bpm, (v) => setBpm(Math.round(v)));
+  toggle('tempo', 'lock to tempo', () => S.tempo, toggleTempo);
+  trigger('tap', 'tap tempo', tap);
+  choice('spb', 'steps per beat', STEPS_PER_BEAT, () => S.stepsPerBeat, setStepsPerBeat);
+  choice('clock', 'clock source', ['internal', 'external'], () => clock.source, setClockSource);
+  // camera
+  range('fov', 'field of view', 30, 130, () => S.fov, (v) => { S.fov = v; syncCamera(); });
+  range('pitch', 'look up', -90, 90, () => S.pitch, (v) => { S.pitch = v; syncCamera(); });
+  controls.set('turn', { id: 'turn', label: 'turn (endless knob)', kind: 'turn' });
+  controls.set('glance', { id: 'glance', label: 'glance (springs back)', kind: 'glance' });
+  trigger('sky', 'look up (sky)', () => { S.pitch = 90; syncCamera(); });
+  trigger('horizon', 'back to the horizon', () => { S.pitch = 0; syncCamera(); });
+  toggle('follow', 'face the direction of travel', () => S.follow, () => $('#follow').click());
+  toggle('sun', 'hold the sun', () => S.sun, toggleSun);
+  toggle('sharp', 'sharper photos', () => S.sharp, () => $('#sharp').click());
+  // effects
+  for (const p of PARAMS) {
+    const label = p.label.replace(/ \(.*\)$/, '');
+    if (p.step >= 1 && p.max === 1 && p.min === 0) choice(`fx.${p.id}`, label, [0, 1], () => Math.round(look[p.id]), (v) => setParam(p.id, v));
+    else range(`fx.${p.id}`, label, p.min, p.max, () => look[p.id], (v) => setParam(p.id, p.step >= 1 ? Math.round(v / p.step) * p.step : v));
+  }
+  for (let i = 1; i <= 9; i++) trigger(`look.${i}`, `look ${i}`, () => applyPreset(Object.keys(allPresets())[i - 1]));
+  // audio
+  choice('kick', 'kick (off / 808 / 909)', KICKS, () => kick.type, setKick);
+  range('kick.volume', 'kick volume', 0, 1, () => kick.volume, (v) => { kick.setVolume(v); saveKick(); refreshEffects(); });
+  range('kick.offset', 'kick offset', -250, 250, () => kick.offset, (v) => { kick.offset = Math.round(v / 5) * 5; saveKick(); refreshEffects(); });
+  // places, output
+  for (let i = 1; i <= SLOT_COUNT; i++) trigger(`place.${i}`, `place ${i}`, () => goSlot(i));
+  toggle('live', 'live', () => S.live, () => setLive(!S.live));
+  trigger('record', 'record', toggleRecord);
+
+  // What's on screen for each (the rest are learnable from the MIDI panel).
+  const tag = { '#mix': 'mix', '#smooth': 'smooth', '#delay': 'delay', '#bmode': 'bmode', '#modes': 'blend', '#play': 'play',
+    '#step-fwd': 'step.fwd', '#step-back': 'step.back', '#direction': 'dir', '#fps': 'speed', '#bpm': 'bpm', '#tempo': 'tempo',
+    '#tap': 'tap', '#spb': 'spb', '#clock-source': 'clock', '#fov': 'fov', '#pitch': 'pitch', '#sky': 'sky', '#horizon': 'horizon',
+    '#follow': 'follow', '#sun': 'sun', '#sharp': 'sharp', '#kick-type': 'kick', '#live': 'live', '#live-sw': 'live',
+    '#record': 'record', '#record-2': 'record' };
+  for (const [sel, id] of Object.entries(tag)) if ($(sel)) $(sel).dataset.learn = id;
+}
+
+// ---- the MIDI panel ----
+
+function renderMidiPanel() {
+  if (OUTPUT || $('#midi-panel').hidden) return;
+  const now = performance.now();
+  $('#midi-devices').replaceChildren(...(devices.size ? [...devices.entries()].map(([id, d]) => {
+    const li = document.createElement('li');
+    const roles = [];
+    if (profiles.profile.devices?.some((x) => d.name.toLowerCase().includes(x.toLowerCase()))) roles.push(`profile "${profiles.current}"`);
+    if (clock.input === id && external()) roles.push('clock in');
+    li.innerHTML = `<span class="act${now - d.hit < 200 ? ' hit' : ''}">●</span><span class="n"></span><span class="dim"></span>`;
+    li.children[1].textContent = d.name;
+    li.children[2].textContent = roles.join(' · ');
+    return li;
+  }) : [Object.assign(document.createElement('li'), { className: 'dim', textContent: 'No MIDI device connected. The keyboard does everything; plug in a controller any time.' })]));
+  $('#midi-last').textContent = lastMessage ? `last: ${lastMessage}` : 'last: nothing received yet';
+
+  const sel = $('#midi-profile');
+  sel.replaceChildren(...Object.keys(profiles.profiles).map((n) => Object.assign(document.createElement('option'), { value: n, textContent: n })));
+  sel.value = profiles.current;
+  const p = profiles.profile;
+  $('#midi-profile-note').textContent = p.devices?.length ? `Switches in by itself when this controller connects: ${p.devices[0]}.` : 'Not tied to a controller yet: plug one in and click "use with connected controller".';
+
+  const list = p.bindings.map((b, i) => ({ b, i, c: controls.get(b.to) })).sort((x, y) => (x.c?.label || x.b.to).localeCompare(y.c?.label || y.b.to));
+  $('#midi-bindings').replaceChildren(...(list.length ? list.map(({ b, i, c }) => {
+    const li = document.createElement('li');
+    li.innerHTML = '<span class="src"></span><span class="to"></span><button class="mode"></button><button class="x" title="Remove">×</button>';
+    li.querySelector('.src').textContent = describe(b.src);
+    li.querySelector('.to').textContent = `→ ${c ? c.label : b.to}`;
+    const mode = li.querySelector('.mode');
+    if (b.src.startsWith('cc:')) {
+      const modes = { abs: ['⇥', 'knob or fader (0–127)'], rel: ['∞', 'endless knob (nudges)'], press: ['●', 'button (press)'] };
+      const [sym, what] = modes[b.mode || 'abs'];
+      mode.textContent = sym;
+      mode.title = `${what}: click to change`;
+      mode.addEventListener('click', () => {
+        const order = ['abs', 'rel', 'press'];
+        b.mode = order[(order.indexOf(b.mode || 'abs') + 1) % 3];
+        profiles.push();
+        renderLearn();
+      });
+    } else mode.hidden = true;
+    li.querySelector('.x').addEventListener('click', () => { profiles.unbind(i); renderLearn(); });
+    li.addEventListener('mouseenter', () => { for (const el of document.querySelectorAll(`[data-learn="${CSS.escape(b.to)}"]`)) el.classList.add('pointed'); });
+    li.addEventListener('mouseleave', () => { for (const el of document.querySelectorAll('.pointed')) el.classList.remove('pointed'); });
+    return li;
+  }) : [Object.assign(document.createElement('li'), { className: 'dim', textContent: 'No mappings in this profile yet: press M, click a control, move a knob.' })]));
+}
+
+if (!OUTPUT) {
+  buildControls();
+  const name = () => $('#midi-name').value.trim();
+  $('#midi-btn').addEventListener('click', () => { closeProjectMenu(); renderMidiPanel(); });
+  $('#midi-learn').addEventListener('click', () => setLearnMode(!learnMode));
+  $('#midi-profile').addEventListener('change', (e) => { profiles.use(e.target.value); e.target.blur(); status(`MIDI profile: ${profiles.current}.`); renderLearn(); });
+  $('#midi-new').addEventListener('click', () => {
+    const n = name();
+    if (!n || n in profiles.profiles) return status(n ? `There's already a profile called "${n}".` : 'Type a name for the new profile first.');
+    profiles.create(n);
+    status(`New, empty profile "${n}": press M to start mapping.`);
+    renderLearn();
+  });
+  $('#midi-dup').addEventListener('click', () => {
+    const n = name() || `${profiles.current} copy`;
+    if (n in profiles.profiles) return status(`There's already a profile called "${n}".`);
+    profiles.create(n, profiles.profile);
+    renderLearn();
+  });
+  $('#midi-rename').addEventListener('click', async () => {
+    const n = name();
+    const from = profiles.current;
+    if (!n || n === from || n in profiles.profiles) return status('Type a new name in the box first.');
+    profiles.create(n, profiles.profile);
+    await profiles.remove(from);
+    profiles.use(n);
+    status(`Renamed "${from}" to "${n}".`);
+    renderLearn();
+  });
+  $('#midi-delete').addEventListener('click', async () => {
+    if (!confirm(`Delete the MIDI profile "${profiles.current}"?`)) return;
+    await profiles.remove(profiles.current);
+    renderLearn();
+  });
+  $('#midi-reset').addEventListener('click', () => {
+    if (!confirm('Put the MiniLab 3 profile back to how MIDIMap knew it?')) return;
+    profiles.profiles['minilab 3'] = MINILAB();
+    profiles.use('minilab 3');
+    profiles.push();
+    renderLearn();
+  });
+  $('#midi-for-device').addEventListener('click', () => {
+    const names = [...devices.values()].map((d) => d.name);
+    if (!names.length) return status('No MIDI controller connected.');
+    for (const p of Object.values(profiles.profiles)) p.devices = (p.devices || []).filter((d) => !names.includes(d));
+    profiles.profile.devices = [...new Set([...names, ...(profiles.profile.devices || [])])];
+    profiles.push();
+    status(`"${profiles.current}" now switches in when ${names.join(', ')} connects.`);
+    renderLearn();
+  });
+  $('#midi-export').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(profiles.profile, null, 2)], { type: 'application/json' });
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `${profiles.current}.midimap-midi.json` });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  });
+  $('#midi-import').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const p = JSON.parse(await file.text());
+      if (!Array.isArray(p.bindings)) throw new Error('no mappings in it');
+      let n = (p.name || file.name.replace(/\..*$/, '')).slice(0, 60);
+      while (n in profiles.profiles) n = `${n} (imported)`.slice(0, 60);
+      profiles.create(n, { ...p, version: PROFILE_VERSION });
+      status(`Imported the MIDI profile "${n}".`);
+      renderLearn();
+    } catch (err) {
+      status(`Could not import that file: ${err.message}`, true);
+    }
+  });
+  for (const b of document.querySelectorAll('[data-arm]')) b.addEventListener('click', () => arm(b.dataset.arm));
+  setInterval(renderMidiPanel, 150); // activity lights and the last message
+  addEventListener('resize', placeBadges);
+  document.addEventListener('scroll', placeBadges, true);
+  for (const t of document.querySelectorAll('#insp-tabs [data-tab], #below-tabs [data-below]')) t.addEventListener('click', () => setTimeout(placeBadges, 0));
+  profiles.syncNow().then(() => renderLearn()).catch(() => {});
+  setInterval(() => profiles.syncNow().catch(() => {}), 30000);
+  renderLearn();
+  Object.assign(window.blend, { profiles, controls, onMidi });
+}

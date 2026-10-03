@@ -361,6 +361,13 @@ const learn = (page, rowText) => page.locator('#mappings tr', { hasText: rowText
   check('projects: an oversized body is refused', (await projects('PUT', '/huge', { key: 'right-key', body: { x: 'y'.repeat(300000) } })).status === 400);
   check('projects: deleting with the key works', (await projects('DELETE', '/big', { key: 'right-key' })).status === 200
     && !('big' in (await (await projects('GET', '')).json()).projects));
+  const midi = (method, p, { key, body } = {}) => worker.fetch(new Request(`https://midimap.example/api/midi${p}`, {
+    method, body: body && JSON.stringify(body), headers: { ...(key && { 'x-midimap-key': key }), 'content-type': 'application/json' },
+  }), env);
+  check('midi profiles: saving needs the key', (await midi('PUT', '/minilab%203', { body: { version: 1 } })).status === 401);
+  check('midi profiles: save and list (own table)', (await midi('PUT', '/minilab%203', { key: 'right-key', body: { version: 1, bindings: [{ src: 'cc:*:74', to: 'mix' }] } })).status === 200
+    && (await (await midi('GET', '')).json()).profiles['minilab 3']?.bindings[0].to === 'mix'
+    && !('minilab 3' in (await (await projects('GET', '')).json()).projects));
   const cfg = await (await worker.fetch(new Request('https://midimap.example/config.local.json'), env)).json();
   check('presets: the public key file never reveals the sync key', !('presetsKey' in cfg) && !JSON.stringify(cfg).includes('right-key'));
 

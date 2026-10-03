@@ -24,8 +24,8 @@ Three parts, one codebase:
 4. **The editor** (`editor/`, at `/editor/`): the main tool being built from
    experiment 3, following `EDITOR-PLAN.md` (layout C from
    `mockups/editor.html`, Drift's look). Phases 1 (layout + Mapillary, parity
-   with experiment 3), 2 (live, output window, app) and 3 (projects) are
-   done; 4–8 are in the plan.
+   with experiment 3), 2 (live, output window, app), 3 (projects) and 4
+   (MIDI panel, controller profiles) are done; 5–8 are in the plan.
 
 ## The author and how to work with them
 
@@ -236,6 +236,23 @@ stay frozen (experiment 3 started as a copy of 2).
   import), save, saved mark; ⌘S / ⇧⌘S. Jumps take a ticket (`nav`) so the
   last one asked for wins (New then Open used to race). 22 checks with a
   faked sync service.
+- Phase 4, **MIDI** (`editor/midi.js` + the MIDI sections of `editor/app.js`):
+  the fixed MiniLab mapping and experiment 3's learn list became one
+  **controller profile** (`MINILAB()`; old learned knobs merged in on first
+  run). Binding = `{ src: 'cc|note|pc:<ch|*>:<n|*>' | 'pb:<ch>', to: control
+  id, mode: abs|rel|press, range? }`; the most specific match wins (a learned
+  key beats "any key steps"). `controls` (built by `buildControls()`, ~60):
+  range / toggle / trigger / choice / turn / glance; `[data-learn]` marks them
+  on screen. Learn mode **M**: capture-phase click arms a control (it is not
+  operated), next message binds (source leaves other controls, control keeps
+  one source); an endless knob is spotted from the next values (all 58–70 →
+  `rel`). Panel (midi ▾): devices with activity lights, last message,
+  profile select/new/duplicate/rename/delete/export/import, "use with
+  connected controller" (profile.devices; a newly plugged controller brings
+  its profile), mapping list with ⇥/∞/● and ×, learn buttons for controls
+  not on screen. Profiles sync via `/api/midi` (D1 `midi_profiles`,
+  migration 0003; `ProjectStore` is reused with options). A project stores
+  only the profile name. 37 checks with fake devices and a fake sync service.
 - Verified 2026-10-01 with Playwright: 42 parity checks (keys, mouse, fake
   MiniLab, learn, looks with a faked API, output mirroring, recording), the
   clock and kick timing tests.
@@ -244,7 +261,8 @@ stay frozen (experiment 3 started as a copy of 2).
 
 Serves the site files (`[assets]`, `.assetsignore`), answers
 `/config.local.json` from `MAPS_API_KEY` and `MAPILLARY_TOKEN` (**never**
-`PRESETS_KEY`), and `/api/presets`: GET public; PUT/DELETE need header
+`PRESETS_KEY`), and `/api/presets`, `/api/projects`, `/api/midi` (the
+`COLLECTIONS` table: one D1 table each): GET public; PUT/DELETE need header
 `x-midimap-key` = `PRESETS_KEY` (constant-time compare); CORS only for
 http://localhost:8000 and :8765.
 

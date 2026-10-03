@@ -9,6 +9,7 @@
   <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 </head>
 <body>
+<div id="learn-layer"></div>
 <div class="app">
   <header class="topbar">
     <span class="mark">midimap<i>∴</i></span>
@@ -54,9 +55,18 @@
       <p class="note">Looks are not inside projects: they're shared by all of them, like reverb presets. <b>⌘S</b> saves, <b>⇧⌘S</b> saves as. An export file is a backup to carry to a gig.</p>
     </div>
     <div class="menu" id="midi-panel" hidden>
-      <h3>midi</h3>
-      <p id="midi-status" class="note">MIDI: starting…</p>
-      <p class="note">To put a control on a knob or fader: click <b>learn</b> beside it (effects, audio), then move the knob. Devices, controller profiles and learn-anything come in phase 4.</p>
+      <h3>devices</h3>
+      <ul id="midi-devices" class="list devices"></ul>
+      <p id="midi-last" class="note"></p>
+      <h3>controller profile</h3>
+      <div class="inline"><select id="midi-profile" aria-label="Profile"></select><button id="midi-learn" title="M">learn mode <kbd>M</kbd></button></div>
+      <p id="midi-profile-note" class="note"></p>
+      <div class="inline"><input id="midi-name" type="text" maxlength="60" placeholder="name" aria-label="Profile name"><button id="midi-new">new</button><button id="midi-dup">duplicate</button><button id="midi-rename">rename</button></div>
+      <div class="buttons"><button id="midi-for-device">use with connected controller</button><button id="midi-export">export</button><label class="button">import<input type="file" id="midi-import" accept="application/json,.json" hidden></label><button id="midi-delete">delete</button><button id="midi-reset" title="Put the MiniLab 3 profile back to how MIDIMap knew it">reset minilab 3</button></div>
+      <h3>mappings</h3>
+      <ul id="midi-bindings" class="list bindings"></ul>
+      <div class="buttons arm"><span class="dim">not on screen, learn here:</span><button data-arm="turn">turn</button><button data-arm="glance">glance</button><button data-arm="step.paused">step while paused</button><button data-arm="blend.next">next blend</button><button data-arm="blend.prev">previous blend</button></div>
+      <p class="note">Learn mode: every control you can map gets an amber outline; click one, then move a knob, fader, pad or key. ⇥ knob or fader · ∞ endless knob · ● button (click to change). Mappings belong to the controller, so every project uses them.</p>
     </div>
   </header>
 
@@ -234,6 +244,7 @@
         <tr><td>H</td><td>hide the editor (picture only); H again brings it back</td></tr>
         <tr><td>L</td><td>live: the output shows the picture, or fades to black</td></tr>
         <tr><td>F</td><td>full screen: the output window if it's open, otherwise this editor</td></tr>
+        <tr><td>M</td><td>MIDI learn mode: click a control, move a knob, pad or key (midi ▾ in the top bar lists mappings)</td></tr>
         <tr><td>⌘S · ⇧⌘S</td><td>save the project · save it under a new name</td></tr>
         <tr><td>Esc</td><td>cancel MIDI learn, close menus</td></tr>
         <tr><td>MiniLab mod strip</td><td>look up (bottom = horizon, top = sky)</td></tr>

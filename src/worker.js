@@ -10,6 +10,7 @@ const KEY_PATH = '/config.local.json';
 const COLLECTIONS = {
   '/api/presets': { table: 'presets', field: 'presets', noun: 'preset', maxBytes: 20000 },
   '/api/projects': { table: 'projects', field: 'projects', noun: 'project', maxBytes: 200000 },
+  '/api/midi': { table: 'midi_profiles', field: 'profiles', noun: 'MIDI profile', maxBytes: 50000 },
 };
 // Browser pages allowed to call the presets API from another address: the local copies.
 const LOCAL_ORIGINS = new Set(['http://localhost:8000', 'http://localhost:8765']);
@@ -38,7 +39,8 @@ function keyFile(env) {
 // GET    /api/presets          all presets: { presets: { name: preset }, updated: { name: ms } }
 // PUT    /api/presets/<name>   save one (body: the preset as JSON); needs the sync key
 // DELETE /api/presets/<name>   delete one; needs the sync key
-// The same for /api/projects (field "projects"; bodies up to 200 kB).
+// The same for /api/projects (field "projects"; bodies up to 200 kB) and
+// /api/midi (controller profiles, field "profiles"; up to 50 kB).
 async function collection(request, env, url, base, { table, field, noun, maxBytes }) {
   const origin = request.headers.get('origin');
   const cors = LOCAL_ORIGINS.has(origin) ? {

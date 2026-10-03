@@ -202,7 +202,9 @@ body.output #out-hint:not([hidden]) { display: block; position: fixed; top: 14px
 /* ---- status bar ---- */
 .status { grid-area: status; display: flex; gap: 18px; align-items: center; padding: 0 12px; height: 26px; border-top: 1px solid var(--line);
   color: var(--txt-2); background: var(--panel); font-size: 11px; min-width: 0; }
-#status { color: var(--txt); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#status { color: var(--txt); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 0; }
+.status > span { white-space: nowrap; }
+.status > .spacer { flex: 0 0 8px; }
 #status.error, #clock-status.error { color: var(--live); }
 #clock-status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%; }
 
@@ -219,3 +221,26 @@ body.output .app { display: block; }
 body.output .app > :not(.main), body.output .main > :not(.monitor), body.output #hud, body.output #live-badge { display: none !important; }
 body.output .main, body.output .monitor { position: fixed; inset: 0; display: block; }
 body.output #view { width: 100vw; height: 100vh; aspect-ratio: auto; cursor: default; }
+
+/* ---- MIDI panel and learn mode (phase 4) ---- */
+#midi-panel { width: 540px; max-height: calc(100vh - 80px); overflow: auto; }
+#midi-panel .inline { margin: 4px 0; }
+#midi-panel .inline input { flex: 1; min-width: 0; }
+.devices li, .bindings li { cursor: default; }
+#midi-panel .devices li { grid-template-columns: auto 1fr auto; }
+.devices .act { color: var(--line-2); }
+.devices .act.hit { color: var(--run); }
+.bindings { max-height: 260px; }
+#midi-panel .bindings li { grid-template-columns: 10em 1fr auto auto; gap: 8px; padding: 2px 6px; }
+#midi-panel .bindings .to { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bindings .src { color: var(--hot); }
+.bindings .mode { padding: 0 6px; min-width: 2em; }
+.buttons.arm button { font-size: 11px; padding: 2px 7px; }
+body.midi-learn [data-learn] { outline: 1px dashed var(--hot); outline-offset: 1px; cursor: crosshair; }
+body.midi-learn [data-learn] * { cursor: crosshair; }
+[data-learn].armed { outline: 2px solid var(--hot) !important; outline-offset: 1px; animation: armed 0.8s ease-in-out infinite alternate; }
+@keyframes armed { from { outline-color: var(--hot); } to { outline-color: transparent; } }
+[data-learn].pointed { outline: 2px solid var(--run) !important; }
+body.midi-learn .topbar #midi-learn { background: var(--hot); color: #000; }
+#learn-layer { position: fixed; inset: 0; pointer-events: none; z-index: 30; }
+#learn-layer .badge { position: absolute; transform: translateX(-100%); background: var(--hot); color: #000; font-size: 9px; line-height: 1; padding: 2px 3px; white-space: nowrap; }
