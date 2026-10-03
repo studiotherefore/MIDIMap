@@ -1,12 +1,16 @@
 // Cloudflare Worker for MIDIMap. Serves the site's files, answers the page's
 // key-file request (config.local.json, the same path as a local setup) from
-// secrets, and keeps the experiments' saved presets in a D1 database.
+// secrets, and keeps saved looks (presets) and editor projects in a D1 database.
 //   npx wrangler secret put MAPS_API_KEY       Google Maps key (the instrument)
 //   npx wrangler secret put MAPILLARY_TOKEN    Mapillary client token (experiments)
-//   npx wrangler secret put PRESETS_KEY        sync key: required to save or delete presets
+//   npx wrangler secret put PRESETS_KEY        sync key: required to save or delete presets and projects
 
 const KEY_PATH = '/config.local.json';
-const PRESETS_PATH = '/api/presets';
+// Two collections with the same rules: anyone can read, writing needs the sync key.
+const COLLECTIONS = {
+  '/api/presets': { table: 'presets', field: 'presets', noun: 'preset', maxBytes: 20000 },
+  '/api/projects': { table: 'projects', field: 'projects', noun: 'project', maxBytes: 200000 },
+};
 // Browser pages allowed to call the presets API from another address: the local copies.
 const LOCAL_ORIGINS = new Set(['http://localhost:8000', 'http://localhost:8765']);
 
@@ -14,7 +18,9 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === KEY_PATH) return keyFile(env);
-    if (url.pathname === PRESETS_PATH || url.pathname.startsWith(`${PRESETS_PATH}/`)) return presets(request, env, url);
+    for (const [base, c] of Object.entries(COLLECTIONS)) {
+      if (url.pathname === base || url.pathname.startsWith(`${base}/`)) return collection(request, env, url, base, c);
+    }
     return env.ASSETS.fetch(request);
   },
 };
@@ -32,7 +38,8 @@ function keyFile(env) {
 // GET    /api/presets          all presets: { presets: { name: preset }, updated: { name: ms } }
 // PUT    /api/presets/<name>   save one (body: the preset as JSON); needs the sync key
 // DELETE /api/presets/<name>   delete one; needs the sync key
-async function presets(request, env, url) {
+// The same for /api/projects (field "projects"; bodies up to 200 kB).
+async function collection(request, env, url, base, { table, field, noun, maxBytes }) {
   const origin = request.headers.get('origin');
   const cors = LOCAL_ORIGINS.has(origin) ? {
     'access-control-allow-origin': origin,
@@ -43,10 +50,10 @@ async function presets(request, env, url) {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
 
   if (request.method === 'GET') {
-    const { results } = await env.DB.prepare('SELECT name, data, updated_at FROM presets').all();
-    const out = { presets: {}, updated: {} };
+    const { results } = await env.DB.prepare(`SELECT name, data, updated_at FROM ${table}`).all();
+    const out = { [field]: {}, updated: {} };
     for (const r of results) {
-      out.presets[r.name] = JSON.parse(r.data);
+      out[field][r.name] = JSON.parse(r.data);
       out.updated[r.name] = r.updated_at;
     }
     return json(out, 200, { ...cors, 'cache-control': 'no-store' });
@@ -55,26 +62,26 @@ async function presets(request, env, url) {
   if (!(await sameSecret(request.headers.get('x-midimap-key') || '', env.PRESETS_KEY || ''))) {
     return json({ error: 'The sync key is missing or wrong.' }, 401, cors);
   }
-  const name = decodeURIComponent(url.pathname.slice(PRESETS_PATH.length + 1)).trim();
-  if (!name || name.length > 60) return json({ error: 'A preset needs a name of up to 60 characters.' }, 400, cors);
+  const name = decodeURIComponent(url.pathname.slice(base.length + 1)).trim();
+  if (!name || name.length > 60) return json({ error: `A ${noun} needs a name of up to 60 characters.` }, 400, cors);
 
   if (request.method === 'PUT') {
     const text = await request.text();
-    let preset;
+    let item;
     try {
-      preset = JSON.parse(text);
+      item = JSON.parse(text);
     } catch {
-      preset = null;
+      item = null;
     }
-    if (!preset || typeof preset !== 'object' || Array.isArray(preset) || text.length > 20000) {
-      return json({ error: 'That is not a preset.' }, 400, cors);
+    if (!item || typeof item !== 'object' || Array.isArray(item) || text.length > maxBytes) {
+      return json({ error: `That is not a ${noun}.` }, 400, cors);
     }
-    await env.DB.prepare('INSERT INTO presets (name, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(name) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at')
-      .bind(name, JSON.stringify(preset), Date.now()).run();
+    await env.DB.prepare(`INSERT INTO ${table} (name, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(name) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`)
+      .bind(name, JSON.stringify(item), Date.now()).run();
     return json({ saved: name }, 200, cors);
   }
   if (request.method === 'DELETE') {
-    await env.DB.prepare('DELETE FROM presets WHERE name = ?').bind(name).run();
+    await env.DB.prepare(`DELETE FROM ${table} WHERE name = ?`).bind(name).run();
     return json({ deleted: name }, 200, cors);
   }
   return json({ error: 'Method not allowed.' }, 405, cors);

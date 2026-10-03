@@ -300,11 +300,17 @@ const learn = (page, rowText) => page.locator('#mappings tr', { hasText: rowText
   check('worker: no secret set → 404, so the page falls back to the browser key', none.status === 404);
   check('worker: other paths are the site files', (await (await get('/js/main.js', { ASSETS: assets })).text()) === 'asset /js/main.js');
 
-  // Presets API, against an in-memory stand-in for the D1 database.
-  const rows = new Map();
+  // Presets and projects APIs, against an in-memory stand-in for the D1 database (one Map per table).
+  const tables = new Map();
+  const table = (sql) => {
+    const name = sql.match(/(?:FROM|INTO)\s+(\w+)/i)[1];
+    if (!tables.has(name)) tables.set(name, new Map());
+    return tables.get(name);
+  };
   const DB = {
     prepare(sql) {
       let args = [];
+      const rows = table(sql);
       const stmt = {
         bind: (...a) => { args = a; return stmt; },
         all: async () => ({ results: [...rows.values()] }),
@@ -339,6 +345,22 @@ const learn = (page, rowText) => page.locator('#mappings tr', { hasText: rowText
   check('presets: the Mac copies may call it (CORS)', local.headers.get('access-control-allow-origin') === 'http://localhost:8000');
   const stranger = await api('GET', '', { origin: 'https://example.com' });
   check('presets: other sites may not call it from a browser', !stranger.headers.get('access-control-allow-origin'));
+  const projects = (method, p, { key, body } = {}) => worker.fetch(new Request(`https://midimap.example/api/projects${p}`, {
+    method, body: body && (typeof body === 'string' ? body : JSON.stringify(body)),
+    headers: { ...(key && { 'x-midimap-key': key }), 'content-type': 'application/json' },
+  }), env);
+  const berlin = { version: 1, name: 'berlin set', places: [{ name: 'Karl-Marx-Allee', lat: 52.5, lng: 13.4 }], effects: { bloom: 0.2 } };
+  check('projects: list starts empty (separate from presets)', Object.keys((await (await projects('GET', '')).json()).projects).length === 0);
+  check('projects: saving without the key is refused', (await projects('PUT', '/berlin%20set', { body: berlin })).status === 401);
+  check('projects: saving with the key works', (await projects('PUT', '/berlin%20set', { key: 'right-key', body: berlin })).status === 200);
+  const plist = await (await projects('GET', '')).json();
+  check('projects: saved project is listed with its time', plist.projects['berlin set']?.places[0].name === 'Karl-Marx-Allee' && plist.updated['berlin set'] > 0);
+  check('projects: presets are not mixed in', !('berlin set' in (await (await api('GET', '')).json()).presets));
+  const big = { version: 1, places: Array.from({ length: 64 }, (_, i) => ({ name: `place ${i}`.padEnd(400, '.'), lat: 0, lng: 0 })) };
+  check('projects: a large project (64 places, ~30 kB) fits', (await projects('PUT', '/big', { key: 'right-key', body: big })).status === 200);
+  check('projects: an oversized body is refused', (await projects('PUT', '/huge', { key: 'right-key', body: { x: 'y'.repeat(300000) } })).status === 400);
+  check('projects: deleting with the key works', (await projects('DELETE', '/big', { key: 'right-key' })).status === 200
+    && !('big' in (await (await projects('GET', '')).json()).projects));
   const cfg = await (await worker.fetch(new Request('https://midimap.example/config.local.json'), env)).json();
   check('presets: the public key file never reveals the sync key', !('presetsKey' in cfg) && !JSON.stringify(cfg).includes('right-key'));
 

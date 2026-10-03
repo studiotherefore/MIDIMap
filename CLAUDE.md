@@ -24,8 +24,8 @@ Three parts, one codebase:
 4. **The editor** (`editor/`, at `/editor/`): the main tool being built from
    experiment 3, following `EDITOR-PLAN.md` (layout C from
    `mockups/editor.html`, Drift's look). Phases 1 (layout + Mapillary, parity
-   with experiment 3) and 2 (live, output window, app) are done; 3–8 are in
-   the plan.
+   with experiment 3), 2 (live, output window, app) and 3 (projects) are
+   done; 4–8 are in the plan.
 
 ## The author and how to work with them
 
@@ -56,7 +56,7 @@ Three parts, one codebase:
 | The app | double-click `MIDIMap.app` in the project folder (git-ignored AppleScript launcher) or `npm start` in `app/`; serves itself on 127.0.0.1:8765 |
 | Keys (never committed) | `config.local.json`: `mapsApiKey` (Google, a dedicated "MIDIMap" key), `mapillaryToken`, `presetsKey` (preset sync). Template: `config.example.json` |
 | Cloudflare secrets | `MAPS_API_KEY`, `MAPILLARY_TOKEN`, `PRESETS_KEY` (`npx wrangler secret put NAME`, pipe the value from the key file; never print it) |
-| Presets database | Cloudflare D1 `midimap-presets` (binding `DB`), schema in `migrations/` |
+| Presets database | Cloudflare D1 `midimap-presets` (binding `DB`): tables `presets` (looks) and `projects` (editor, migration 0002), schema in `migrations/` |
 
 GitHub Pages is retired (2026-09-28); GitHub is only the backup.
 
@@ -223,6 +223,19 @@ stay frozen (experiment 3 started as a copy of 2).
   Untested by machine: full screen on a second display (needs a real gesture
   and a second screen); the author's Roland video output appears as a
   mirror, not a separate display.
+- Phase 3, **projects** (`editor/project.js` + the projects section at the
+  end of `editor/app.js`): a versioned JSON document (`PROJECT_VERSION`,
+  `migrate()`): places, layers, effect values, camera, playback (photo,
+  slot), tempo + clock, audio, output, midi profile name. Stored in D1 table
+  `projects` via `/api/projects` (same rules and sync key as presets; the
+  Worker's `COLLECTIONS`; 200 kB max), cached in localStorage, saved locally
+  when offline/no key and uploaded later. The open project + unsaved draft
+  live in `midimap.editor.current.v1`, written every second and on
+  `pagehide`. "Unsaved" = `fingerprint()` differs (ignores the playing
+  photo). Top bar: project ▾ (menu: list, save as, rename, new, export,
+  import), save, saved mark; ⌘S / ⇧⌘S. Jumps take a ticket (`nav`) so the
+  last one asked for wins (New then Open used to race). 22 checks with a
+  faked sync service.
 - Verified 2026-10-01 with Playwright: 42 parity checks (keys, mouse, fake
   MiniLab, learn, looks with a faked API, output mirroring, recording), the
   clock and kick timing tests.

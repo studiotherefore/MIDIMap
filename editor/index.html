@@ -12,6 +12,11 @@
 <div class="app">
   <header class="topbar">
     <span class="mark">midimap<i>∴</i></span>
+    <div class="group" title="the whole setup">
+      <button id="project-btn" title="projects">project: <span id="project-name">untitled</span> ▾</button>
+      <button id="project-save" title="save the project (⌘S)">save</button>
+      <span id="project-state" class="saved">● saved</span>
+    </div>
     <div class="group" title="tempo">
       <span id="beat-light" title="beat"></span>
       <button id="bpm-down" title="BPM down (−, Shift: by 5)">−</button><input type="number" id="bpm" min="20" max="300" step="1" value="120" aria-label="BPM"><button id="bpm-up" title="BPM up (=, Shift: by 5)">+</button><span class="label">bpm</span>
@@ -30,6 +35,23 @@
     <div class="group">
       <button id="record" class="rec" title="record what the output shows, with the kick (V)">rec <kbd>V</kbd></button>
       <button id="live" class="live" title="live: the output shows the picture; off: it fades to black (L)">live <kbd>L</kbd></button>
+    </div>
+    <div class="menu" id="project-menu" hidden>
+      <h3>projects</h3>
+      <ul id="project-list" class="list"></ul>
+      <div class="inline"><input id="project-name-input" type="text" maxlength="60" placeholder="name" aria-label="Project name"><button id="project-save-as">save as</button><button id="project-rename">rename</button></div>
+      <div class="buttons">
+        <button id="project-new">new</button>
+        <button id="project-export">export file</button>
+        <label class="button">import file<input type="file" id="project-import" accept="application/json,.json" hidden></label>
+      </div>
+      <p id="project-sync" class="note"></p>
+      <h3>a project keeps</h3>
+      <ul class="incl">
+        <li>the 8 places</li><li>layers &amp; blend</li><li>effect values</li><li>camera</li>
+        <li>where you were</li><li>tempo &amp; clock</li><li>audio (kick)</li><li>output settings</li>
+      </ul>
+      <p class="note">Looks are not inside projects: they're shared by all of them, like reverb presets. <b>⌘S</b> saves, <b>⇧⌘S</b> saves as. An export file is a backup to carry to a gig.</p>
     </div>
     <div class="menu" id="midi-panel" hidden>
       <h3>midi</h3>
@@ -212,6 +234,7 @@
         <tr><td>H</td><td>hide the editor (picture only); H again brings it back</td></tr>
         <tr><td>L</td><td>live: the output shows the picture, or fades to black</td></tr>
         <tr><td>F</td><td>full screen: the output window if it's open, otherwise this editor</td></tr>
+        <tr><td>⌘S · ⇧⌘S</td><td>save the project · save it under a new name</td></tr>
         <tr><td>Esc</td><td>cancel MIDI learn, close menus</td></tr>
         <tr><td>MiniLab mod strip</td><td>look up (bottom = horizon, top = sky)</td></tr>
         <tr><td>knobs 1 · 2 · 3 · 4</td><td>mix · delay · cut↔dissolve · speed (BPM when locked)</td></tr>

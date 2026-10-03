@@ -9,6 +9,7 @@ import { PanoBlend, BLEND_MODES } from './renderer.js';
 import { FxChain, PARAMS, PRESETS, neutralLook } from './fx.js';
 import { PresetSync } from '../experiments/lib/presets-sync.js';
 import { Kick, KICKS } from './kick.js';
+import { ProjectStore, PROJECT_VERSION, migrate, fingerprint, download } from './project.js';
 import { DEFAULT_LOCATIONS } from '../js/locations.js';
 
 const $ = (s) => document.querySelector(s);
@@ -536,12 +537,17 @@ function buffered() {
 
 // ---- choosing runs -------------------------------------------------------------------
 
-async function startRun(sequenceId, imageId) {
+// Each jump (a place, a project, a map click) takes a ticket; a jump overtaken
+// by a newer one while it was loading gives up, so the last one asked for wins.
+let nav = 0;
+
+async function startRun(sequenceId, imageId, ticket = ++nav) {
   status('Loading run…');
   try {
     const run = await new Run(graph, sequenceId).load();
     const index = Math.max(0, run.ids.indexOf(imageId));
     await run.ensure(index - 20, index + 60);
+    if (ticket !== nav) return;
     S.runA = run;
     S.index = index;
     shown = { a: null, b: null };
@@ -616,7 +622,7 @@ map.on('load', () => {
   map.addSource('mly', { type: 'vector', tiles: [`${TILES}?access_token=${encodeURIComponent(token)}`], minzoom: 0, maxzoom: 14 });
   map.addLayer({ id: 'pano-runs', type: 'line', source: 'mly', 'source-layer': 'sequence', filter: ['==', ['get', 'is_pano'], true],
     paint: { 'line-color': '#35d07f', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1, 17, 3] } });
-  if (!OUTPUT) goSlot(START_SLOT);
+  if (!OUTPUT) startingPlace();
 });
 
 const here = Object.assign(document.createElement('div'), { style: 'width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:14px solid #ff5a36' });
@@ -642,6 +648,7 @@ setInterval(() => {
 
 // moved: the map was just moved, so wait for the new area's coverage before searching.
 async function openNear(lngLat, metres, label, moved = false) {
+  const ticket = ++nav;
   if (moved) await new Promise((r) => map.once('idle', r));
   else await mapIdle();
   const near = imagesNearFromTiles(map, lngLat, metres, (p) => p.is_pano);
@@ -653,7 +660,8 @@ async function openNear(lngLat, metres, label, moved = false) {
   const img = near.find((i) => (counts.get(i.sequence) || 0) >= 20) || near[0];
   if (!img) return status(`No 360° photo within ${metres} m of ${label || 'that spot'}. Try a green line on the map.`);
   listedAt = null;
-  await startRun(img.sequence, img.id);
+  if (ticket !== nav) return;
+  await startRun(img.sequence, img.id, ticket);
 }
 
 map.on('click', (e) => (map.getZoom() < 14 ? map.easeTo({ center: e.lngLat, zoom: 16 }) : openNear(e.lngLat, 30)));
@@ -893,6 +901,12 @@ const toggleBare = () => document.body.classList.toggle('bare');
 $('#midi-btn').addEventListener('click', () => { $('#midi-panel').hidden = !$('#midi-panel').hidden; });
 
 window.addEventListener('keydown', (e) => {
+  // ⌘S saves the project (⇧⌘S: save as), from anywhere, even while typing.
+  if ((e.metaKey || e.ctrlKey) && e.code === 'KeyS' && !OUTPUT) {
+    e.preventDefault();
+    if (e.shiftKey) openProjectMenu(true); else saveProject();
+    return;
+  }
   if (e.target.closest('input, select, [contenteditable]')) return;
   if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
   else if (e.code === 'ArrowRight') step(1);
@@ -906,7 +920,7 @@ window.addEventListener('keydown', (e) => {
   else if (e.code === 'KeyL' && !OUTPUT) setLive(!S.live);
   else if (e.code === 'KeyS') toggleSun();
   else if (e.code === 'KeyV') toggleRecord();
-  else if (e.code === 'Escape') { cancelLearn(); $('#midi-panel').hidden = true; }
+  else if (e.code === 'Escape') { cancelLearn(); $('#midi-panel').hidden = true; closeProjectMenu(); }
   else if (e.shiftKey && /^Digit[1-9]$/.test(e.code)) applyPreset(Object.keys(allPresets())[+e.code.slice(5) - 1]);
   else if (e.altKey && /^Digit[1-8]$/.test(e.code)) { e.preventDefault(); storeSlot(+e.code.slice(5)); }
   else if (/^Digit[1-8]$/.test(e.code)) goSlot(+e.code.slice(5));
@@ -1637,6 +1651,7 @@ if (OUTPUT) {
       setSeg('#syphon-fps', 'fps', sy.fps);
       $('#syphon-info').textContent = `Sending "MIDIMap" ${sy.size || '(starting)'} at ${sy.measured.toFixed(1)} fps (target ${sy.fps}).`;
       $('#status-syphon').textContent = `syphon ${sy.measured.toFixed(0)} fps`;
+      lastSyphonFps = sy.fps;
     }, 2000);
   }
   setInterval(renderOutput, 1000);
@@ -1659,3 +1674,264 @@ for (const b of $('#kick-type').querySelectorAll('[data-kick]')) b.addEventListe
 window.blend.clock = clock;
 window.blend.onMidi = onMidi; // lets a page feed in a fake clock for testing
 sync();
+
+// ---- projects (phase 3; storage in project.js) -------------------------------------------
+// The open project's name, and a fingerprint of how it was when saved, so the
+// top bar can say saved / unsaved. Unsaved changes are kept as a draft across
+// reloads. Looks stay global: a project keeps the effect values that were on.
+
+const projects = new ProjectStore();
+const project = { name: null, savedFp: null };
+let pendingPhoto = null;   // where to start once the map is ready
+let lastSyphonFps = null;
+
+const DEFAULT_PROJECT = () => ({
+  version: PROJECT_VERSION, name: null,
+  places: DEFAULT_SLOTS.map((x) => ({ ...x })),
+  layers: { mode: 1, mix: 0.5, smooth: 0, bMode: 'delay', delay: 8, runB: null },
+  effects: neutralLook(),
+  camera: { fov: 90, pitch: 0, follow: true, sun: false, sharp: false },
+  playback: { dir: 1, fps: 3, photo: null, slot: START_SLOT },
+  tempo: { bpm: 120, stepsPerBeat: 1, lock: false, clock: 'internal' },
+  audio: { kick: 'off', volume: 0.5, offset: 0 },
+  output: { fullscreen: true, display: null, syphonFps: 30 },
+  midi: { profile: 'default' },
+});
+
+function captureProject(name = project.name) {
+  const display = displays.find((d) => String(d.id) === $('#out-display').value);
+  return {
+    version: PROJECT_VERSION,
+    name,
+    savedAt: Date.now(),
+    places: slots.map((x) => ({ ...x })),
+    layers: { mode: S.mode, mix: S.mix, smooth: S.smooth, bMode: S.bMode, delay: S.delay, runB: S.bMode === 'run' ? S.runB?.id || null : null },
+    effects: Object.fromEntries(Object.keys(neutralLook()).map((k) => [k, look[k]])),
+    camera: { fov: S.fov, pitch: S.pitch, follow: S.follow, sun: S.sun, sharp: S.sharp },
+    playback: { dir: S.dir, fps: S.fps, photo: S.runA ? { sequence: S.runA.id, image: S.runA.ids[S.index] } : null, slot: currentSlot },
+    tempo: { bpm: S.bpm, stepsPerBeat: S.stepsPerBeat, lock: S.tempo, clock: clock.source },
+    audio: { kick: kick.type, volume: kick.volume, offset: kick.offset },
+    output: { fullscreen: outFull, display: display?.label || null, syphonFps: lastSyphonFps },
+    midi: { profile: 'default' },
+  };
+}
+
+// Everything but the photo (which needs the map and the network).
+function applySettings(p) {
+  const d = DEFAULT_PROJECT();
+  const L = { ...d.layers, ...p.layers };
+  const C = { ...d.camera, ...p.camera };
+  const P = { ...d.playback, ...p.playback };
+  const T = { ...d.tempo, ...p.tempo };
+  const A = { ...d.audio, ...p.audio };
+  const O = { ...d.output, ...p.output };
+  setSlots(Array.isArray(p.places) && p.places.length === SLOT_COUNT ? p.places : d.places);
+  Object.assign(S, { mode: L.mode, mix: L.mix, smooth: L.smooth, delay: L.delay });
+  if (L.bMode !== 'run') setBMode(L.bMode);
+  Object.assign(look, neutralLook(), p.effects);
+  currentPreset = null;
+  if (C.sharp !== S.sharp) shown = { a: null, b: null };
+  Object.assign(S, { fov: C.fov, pitch: C.pitch, follow: C.follow, sun: C.sun, sharp: C.sharp });
+  Object.assign(S, { dir: P.dir, fps: P.fps });
+  currentSlot = P.slot ?? null;
+  Object.assign(S, { bpm: T.bpm, stepsPerBeat: T.stepsPerBeat, tempo: T.lock });
+  if (T.clock !== clock.source) setClockSource(T.clock);
+  kick.setVolume(A.volume);
+  kick.offset = A.offset;
+  saveKick();
+  setKick(A.kick); // the kick is heard from the next click or key (browsers' rule)
+  if (A.kick === 'off') S.tempo = T.lock;
+  outFull = O.fullscreen;
+  const match = displays.find((x) => x.label === O.display);
+  if (match) $('#out-display').value = String(match.id);
+  if (APP && O.syphonFps && O.syphonFps !== lastSyphonFps) APP.setSyphonFps(O.syphonFps);
+  renderSlots();
+  renderPresets();
+  refreshEffects();
+  renderOutput();
+  sync();
+}
+
+async function goToProjectPhoto(p) {
+  const photo = p.playback?.photo;
+  if (!photo) return goSlot(p.playback?.slot || START_SLOT);
+  await startRun(photo.sequence, photo.image);
+  if (p.layers?.bMode === 'run' && p.layers.runB) await useRunB(p.layers.runB, null);
+}
+
+// Called when the map is ready: the open project's photo, or the default place.
+function startingPlace() {
+  if (pendingPhoto) goToProjectPhoto(pendingPhoto); else goSlot(START_SLOT);
+  pendingPhoto = null;
+}
+
+function loadProject(p, name) {
+  p = migrate(p);
+  applySettings(p);
+  project.name = name;
+  project.savedFp = name ? fingerprint(p) : fingerprint(captureProject(null));
+  ProjectStore.setCurrent(name, null);
+  renderProjectState();
+  return p;
+}
+
+async function openProject(name) {
+  if (isDirty() && !confirm(`Discard the unsaved changes to "${project.name || 'untitled'}"?`)) return;
+  try {
+    const p = loadProject(projects.all[name], name);
+    closeProjectMenu();
+    status(`Opened project "${name}".`);
+    await goToProjectPhoto(p);
+  } catch (err) {
+    status(`Could not open "${name}": ${err.message}`, true);
+  }
+}
+
+function newProject() {
+  if (isDirty() && !confirm(`Discard the unsaved changes to "${project.name || 'untitled'}"?`)) return;
+  loadProject(DEFAULT_PROJECT(), null);
+  closeProjectMenu();
+  goSlot(START_SLOT);
+  status('New project (untitled). ⌘S saves it.');
+}
+
+async function saveProject(name = project.name) {
+  if (!name) return openProjectMenu(true);
+  try {
+    const p = captureProject(name);
+    const where = await projects.save(name, p);
+    project.name = name;
+    project.savedFp = fingerprint(p);
+    ProjectStore.setCurrent(name, null);
+    closeProjectMenu();
+    renderProjects();
+    renderProjectState();
+    status(`Saved project "${name}" (${where}).`);
+  } catch (err) {
+    status(`Could not save: ${err.message}`, true);
+  }
+}
+
+async function deleteProject(name) {
+  if (!confirm(`Delete the project "${name}"? This can't be undone.`)) return;
+  try {
+    await projects.remove(name);
+    if (project.name === name) { project.name = null; project.savedFp = fingerprint(captureProject(null)); ProjectStore.setCurrent(null, null); }
+    renderProjects();
+    renderProjectState();
+    status(`Deleted project "${name}".`);
+  } catch (err) {
+    status(err.message, true);
+  }
+}
+
+const isDirty = () => project.savedFp !== null && fingerprint(captureProject()) !== project.savedFp;
+
+// ---- the project menu ----
+
+function openProjectMenu(saveAs = false) {
+  $('#project-menu').hidden = false;
+  $('#midi-panel').hidden = true;
+  renderProjects();
+  if (saveAs) {
+    $('#project-name-input').value = project.name ? `${project.name} copy` : 'my project';
+    $('#project-name-input').focus();
+    $('#project-name-input').select();
+  }
+}
+function closeProjectMenu() { $('#project-menu').hidden = true; }
+
+const when = (ms) => {
+  if (!ms) return '';
+  const d = new Date(ms);
+  return d.toDateString() === new Date().toDateString() ? `today ${d.toTimeString().slice(0, 5)}` : d.toISOString().slice(0, 10);
+};
+
+function renderProjects() {
+  const all = projects.all;
+  const names = Object.keys(all).sort((a, b) => (all[b].savedAt || 0) - (all[a].savedAt || 0));
+  $('#project-list').replaceChildren(...(names.length ? names.map((n) => {
+    const li = document.createElement('li');
+    li.className = n === project.name ? 'on' : '';
+    li.innerHTML = '<span class="n"></span><span class="dim w"></span><button class="x" title="Delete">×</button>';
+    li.querySelector('.n').textContent = n;
+    li.querySelector('.w').textContent = `${when(all[n].savedAt)} · ${projects.isLocal(n) ? 'this browser only' : 'synced'}`;
+    li.addEventListener('click', () => openProject(n));
+    li.querySelector('.x').addEventListener('click', (e) => { e.stopPropagation(); deleteProject(n); });
+    return li;
+  }) : [Object.assign(document.createElement('li'), { className: 'dim', textContent: 'No saved projects yet.' })]));
+  let sync = projects.sync.canWrite ? 'Projects sync: on (shared with your other browsers and the app).' : 'Projects sync: read-only here; projects you save stay in this browser until the sync key is added (effects tab → looks).';
+  if (projects.offline) sync = 'Projects sync: offline, showing the last synced list. Saving works again once connected.';
+  $('#project-sync').textContent = sync;
+}
+
+function renderProjectState() {
+  const dirty = isDirty();
+  $('#project-name').textContent = project.name || 'untitled';
+  $('#project-state').textContent = !project.name ? '● not saved' : dirty ? '● unsaved changes' : '● saved';
+  $('#project-state').className = !project.name || dirty ? 'unsaved' : 'saved';
+}
+
+if (!OUTPUT) {
+  $('#project-btn').addEventListener('click', () => ($('#project-menu').hidden ? openProjectMenu() : closeProjectMenu()));
+  $('#project-save').addEventListener('click', () => saveProject());
+  $('#project-new').addEventListener('click', newProject);
+  $('#project-save-as').addEventListener('click', () => saveProject($('#project-name-input').value.trim()));
+  $('#project-name-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') saveProject(e.target.value.trim());
+    if (e.key === 'Escape') { e.target.blur(); closeProjectMenu(); }
+  });
+  $('#project-rename').addEventListener('click', async () => {
+    const to = $('#project-name-input').value.trim();
+    const from = project.name;
+    if (!from) return status('Save the project first, then rename it.');
+    if (!to || to === from) return status('Type the new name in the box, then click rename.');
+    await saveProject(to);
+    if (project.name === to) { await projects.remove(from).catch(() => {}); renderProjects(); status(`Renamed "${from}" to "${to}".`); }
+  });
+  $('#project-export').addEventListener('click', () => download(captureProject(project.name || 'untitled')));
+  $('#project-import').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const p = migrate(JSON.parse(await file.text()));
+      let name = (p.name || file.name.replace(/\.midimap\.json$|\.json$/, '')).slice(0, 60);
+      while (name in projects.all) name = `${name} (imported)`.slice(0, 60);
+      await projects.save(name, { ...p, name });
+      renderProjects();
+      await openProject(name);
+    } catch (err) {
+      status(`Could not import that file: ${err.message}`, true);
+    }
+  });
+
+  // Start where you left off: the open project, with any unsaved changes.
+  const cur = ProjectStore.current();
+  const saved = cur.name ? projects.all[cur.name] : null;
+  try {
+    const start = cur.draft || saved;
+    if (start) {
+      applySettings(migrate(start));
+      pendingPhoto = start;
+    }
+  } catch {
+    /* a broken draft: start fresh */
+  }
+  project.name = saved ? cur.name : null;
+  project.savedFp = saved ? fingerprint(saved) : fingerprint(captureProject(null));
+
+  // Keep unsaved changes across reloads (every second, and as the page closes,
+  // so the last second isn't lost); refresh the saved/unsaved mark.
+  const keepDraft = () => ProjectStore.setCurrent(project.name, isDirty() || !project.name ? captureProject() : null);
+  setInterval(() => { renderProjectState(); keepDraft(); }, 1000);
+  addEventListener('pagehide', keepDraft);
+  renderProjectState();
+  projects.init().then(() => projects.refresh()).then(renderProjects);
+  setInterval(() => projects.refresh().then(renderProjects), 30000);
+}
+
+// A project can open with the kick on, but browsers only allow sound after a
+// click or key press: the first one starts it.
+if (!OUTPUT) for (const type of ['pointerdown', 'keydown']) addEventListener(type, () => { if (kick.ctx?.state === 'suspended') kick.ctx.resume(); }, { capture: true });
+if (!OUTPUT) Object.assign(window.blend, { project, captureProject, fingerprint }); // for tests and the console

@@ -1,26 +1,29 @@
-// Presets shared through Cloudflare (D1 via src/worker.js). Anyone can read;
+// Presets (and, for the editor, projects) shared through Cloudflare (D1 via
+// src/worker.js). Anyone can read;
 // saving and deleting need the sync key. On this Mac (localhost:8000 and the
 // MIDIMap app) the key comes from config.local.json; online, it's pasted once
 // per browser and kept in that browser.
 
 const LIVE = 'https://midimap.studiotherefore.workers.dev';
 const KEY_STORE = 'midimap.syncKey.v1';
-const API = `${location.origin === LIVE ? '' : LIVE}/api/presets`;
+const BASE = location.origin === LIVE ? '' : LIVE;
 
-async function call(method, path = '', key, body) {
-  const res = await fetch(`${API}${path}`, {
+async function call(api, method, path = '', key, body) {
+  const res = await fetch(`${BASE}${api}${path}`, {
     method,
     headers: { ...(key && { 'x-midimap-key': key }), ...(body && { 'content-type': 'application/json' }) },
     body: body && JSON.stringify(body),
     cache: 'no-store',
   });
   if (res.status === 401) throw Object.assign(new Error('The sync key is wrong.'), { wrongKey: true });
-  if (!res.ok) throw new Error(`Presets service answered ${res.status}`);
+  if (!res.ok) throw new Error(`The sync service answered ${res.status}`);
   return res.json();
 }
 
 export class PresetSync {
-  constructor() {
+  // api: '/api/presets' (looks) or '/api/projects' (editor projects); both use the same sync key.
+  constructor(api = '/api/presets') {
+    this.api = api;
     this.key = '';
     this.keySource = null; // 'file' (this Mac) | 'browser' (pasted) | null
   }
@@ -50,20 +53,20 @@ export class PresetSync {
   }
 
   list() {
-    return call('GET');
+    return call(this.api, 'GET');
   }
 
-  save(name, preset) {
-    return call('PUT', `/${encodeURIComponent(name)}`, this.key, preset);
+  save(name, item) {
+    return call(this.api, 'PUT', `/${encodeURIComponent(name)}`, this.key, item);
   }
 
   remove(name) {
-    return call('DELETE', `/${encodeURIComponent(name)}`, this.key);
+    return call(this.api, 'DELETE', `/${encodeURIComponent(name)}`, this.key);
   }
 
   // Check a pasted key (deleting a preset that can't exist needs the key but changes nothing).
   async useKey(key) {
-    await call('DELETE', `/${encodeURIComponent('__key check__')}`, key.trim());
+    await call(this.api, 'DELETE', `/${encodeURIComponent('__key check__')}`, key.trim());
     this.key = key.trim();
     this.keySource = 'browser';
     try {

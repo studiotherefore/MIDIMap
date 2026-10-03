@@ -59,6 +59,21 @@ kbd { font: 10px var(--mono); color: var(--txt-2); border: 1px solid var(--line-
 .live.on { background: var(--live); color: #000; border-color: var(--live); }
 .live.on kbd { color: #000; border-color: #000; }
 .live.on::before { content: "● "; }
+#project-state { font-size: 11px; }
+#project-state.saved { color: var(--run); }
+#project-state.unsaved { color: var(--hot); }
+#project-name { color: var(--txt); }
+#project-menu { left: 110px; right: auto; width: 480px; }
+.menu h3 { margin: 4px 0 8px; font: 11px var(--mono); letter-spacing: .18em; color: var(--hot); font-weight: normal; }
+.menu .list { list-style: none; margin: 0 0 10px; padding: 0; max-height: 240px; overflow: auto; }
+.menu .list li { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 4px 6px; border: 1px solid transparent; cursor: pointer; }
+.menu .list li:hover { border-color: var(--line-2); }
+.menu .list li.on { border-color: var(--hot); color: var(--hot); }
+.menu .list li .x { border: none; padding: 0 4px; color: var(--txt-2); }
+.menu .list li .x:hover { color: var(--live); }
+.menu .inline { margin: 0 0 6px; }
+.menu .inline input { flex: 1; min-width: 0; }
+.menu .incl { columns: 2; margin: 0 0 8px; padding-left: 16px; color: var(--txt-2); }
 .menu { position: absolute; top: 46px; right: 90px; z-index: 15; width: 460px; background: var(--panel-2);
   border: 1px solid var(--hot); box-shadow: 0 10px 40px #000; padding: 10px 12px; }
 
