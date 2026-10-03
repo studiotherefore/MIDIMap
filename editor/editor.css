@@ -255,3 +255,16 @@ body.midi-learn .topbar #midi-learn { background: var(--hot); color: #000; }
 .facts.place input { width: 100%; }
 .facts a { color: var(--hot); }
 #loop-in.on, #loop-out.on { border-color: var(--hot); color: var(--hot); }
+
+/* ---- Street View as layer A (phase 6) ---- */
+#sv-stage { position: absolute; inset: 0; overflow: hidden; background: #000; }
+#sv-pano { width: 100%; height: 100%; }
+#sv-stage .sv-tint, #sv-stage .sv-grain, #sv-stage .sv-fade { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+#sv-stage .sv-tint { mix-blend-mode: color; opacity: 0; }
+#sv-stage .sv-grain { mix-blend-mode: overlay; opacity: 0; image-rendering: pixelated; }
+#sv-stage .sv-fade { background: #000; opacity: 0; }
+#hud, #live-badge { z-index: 2; }
+.monitor.offair::after { z-index: 1; }
+.frame.na, .fx-row.na, .sw.na { opacity: .4; }
+.frame.na *, .sw.na { pointer-events: none; }
+.slot .src.sv::before { color: var(--sv); }

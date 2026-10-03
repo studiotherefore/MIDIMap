@@ -11,6 +11,7 @@ import { PresetSync } from '../experiments/lib/presets-sync.js';
 import { Kick, KICKS } from './kick.js';
 import { ProjectStore, PROJECT_VERSION, migrate, fingerprint, download } from './project.js';
 import { Profiles, parse, srcOf, describe, shortName, MINILAB, PROFILE_VERSION } from './midi.js';
+import { StreetViewLayer, SV_EFFECTS } from './streetview.js';
 import { DEFAULT_LOCATIONS } from '../js/locations.js';
 
 const $ = (s) => document.querySelector(s);
@@ -67,6 +68,7 @@ const S = {
   sun: false, sunSpot: null, lockYaw: 0, lockPitch: 0,
   live: true, // L: the output shows the picture (true) or fades to black (false)
   loop: false, loopIn: null, loopOut: null, // I / O / Shift+I: play round a stretch of the run
+  source: 'mapillary', svMotion: 'travel',  // layer A: Mapillary runs or Google Street View (G); travel hops, drift turns
 };
 let shown = { a: null, b: null };  // photo ids currently on each layer
 let shownA = null;
@@ -217,8 +219,18 @@ function travelHeading(i) {
 let lastFrame = performance.now();
 const FADE_S = 0.6;
 let fade = 1;
+let svYaw = 0;        // the turn already passed to Street View
+let svState = null;   // the output: the editor's panorama and view
+let svWhere = null;   // where Street View is (pano, lat, lng, heading, pitch, description)
+let sv = null;        // the Street View layer (made near the end of this file)
 
 // One step along the run, if the next photos (both layers) are ready.
+// One step: the next Mapillary photo, or a Street View hop (travel; drift turns instead).
+function stepOnce(now) {
+  if (S.source === 'sv') { if (S.svMotion === 'travel') sv.hop(S.dir); lastStep = now; return; }
+  advance(now);
+}
+
 function advance(now) {
   const next = nextIndex(S.index);
   const f = framesFor(next);
@@ -360,7 +372,7 @@ function onClock([st, a, b], t, src) {
     // Stopped devices usually keep pulsing; the song position only moves while running.
     if (!clock.running) return;
     if (clock.pulses % PULSES === 0) clock.origin = t;
-    if (S.playing && S.tempo && clock.pulses % (PULSES / S.stepsPerBeat) === 0) advance(t);
+    if (S.playing && S.tempo && clock.pulses % (PULSES / S.stepsPerBeat) === 0) stepOnce(t);
     clock.pulses++;
   } else if (st === 0xfa) {
     clock.pulses = 0; // the next pulse is beat 1
@@ -452,10 +464,10 @@ function tick(now) {
       const k = Math.floor((now - clock.origin) / stepMs());
       if (!(external(now) && clock.running) && k !== clock.lastStep) {
         clock.lastStep = k;
-        advance(now);
+        stepOnce(now);
       }
     } else if (S.playing && now - lastStep >= 1000 / S.fps) {
-      advance(now);
+      stepOnce(now);
     }
     const f = framesFor(S.index);
     show('a', f.a);
@@ -483,14 +495,25 @@ function tick(now) {
     S.lockYaw = yaw;
     S.lockPitch = pitch;
   }
-  const [w, h] = renderer.fitCanvas();
-  fx.resize(w, h);
-  renderer.render({ yaw, pitch, fov: S.fov }, { mode: S.mode, mix: S.mix }, S.smooth * stepDuration(), fx.sceneTarget);
   // Live fades the output to black and back (FADE_S). The editor's monitor keeps
   // showing the picture (dimmed and marked) so you can prepare the next thing,
   // except while recording: a recording is what the audience sees.
   fade = Math.max(0, Math.min(1, fade + (S.live ? dt : -dt) / FADE_S));
-  fx.render(look, now, OUTPUT || recorder ? fade : 1);
+  if (S.source === 'sv') {
+    // Google draws the picture; we move it and lay the look over it.
+    if (OUTPUT) sv.follow(svState || {}, dt);
+    else {
+      const dragged = sv.drive({ dt, playing: S.playing, motion: S.svMotion, dir: S.dir, degPerSec: S.fps * 3, turn: S.yawOffset - svYaw, pitch: S.pitch, fov: S.fov, glance: S.glance });
+      svYaw = S.yawOffset;
+      if (dragged !== null) S.pitch = dragged;
+    }
+    sv.look(look, OUTPUT ? fade : 1, now);
+  } else {
+    const [w, h] = renderer.fitCanvas();
+    fx.resize(w, h);
+    renderer.render({ yaw, pitch, fov: S.fov }, { mode: S.mode, mix: S.mix }, S.smooth * stepDuration(), fx.sceneTarget);
+    fx.render(look, now, OUTPUT || recorder ? fade : 1);
+  }
   hud(now);
   if (!OUTPUT) postIfMoved();
   requestAnimationFrame(tick);
@@ -523,6 +546,11 @@ function hud(now) {
   }
   $('#hud-b').textContent = b;
   $('#hud-buffer').textContent = A ? `buffered ${buffered()} frames ahead` : '';
+  if (S.source === 'sv') {
+    $('#hud-a').textContent = `street view · ${svWhere?.description || (sv?.ready ? 'here' : 'loading…')} · ${S.svMotion}`;
+    $('#hud-b').textContent = '';
+    $('#hud-buffer').textContent = '';
+  }
   const ext = external(now);
   const kickLabel = kick.type === 'off' ? '' : ` · ${kick.type} kick`;
   $('#hud-tempo').textContent = S.tempo ? `♩ ${S.bpm}${ext ? ' MIDI clock' : ''} · ${spbLabel(S.stepsPerBeat)}${kickLabel}` : '';
@@ -530,7 +558,10 @@ function hud(now) {
   $('#clock-status').classList.toggle('error', clock.source === 'external' && !ext);
   $('#hud-wait').textContent = stalledSince && now - stalledSince > 400 ? 'waiting for photos…' : '';
   syncCamera();
-  if (!OUTPUT) { drawStrip(); runFacts(); placeFacts(); }
+  // The panels under the picture: a problem there must never stop the picture.
+  if (!OUTPUT) {
+    try { drawStrip(); runFacts(); placeFacts(); } catch (err) { console.warn('panel', err); }
+  }
 }
 
 const day = (ms) => new Date(ms).toISOString().slice(0, 10);
@@ -653,6 +684,14 @@ const marker = new maplibregl.Marker({ element: here, rotationAlignment: 'map' }
 let listedAt = null;
 let followedId = null;
 setInterval(() => {
+  if (S.source === 'sv') {
+    const w = sv.where();
+    if (w?.lat !== undefined) {
+      marker.setLngLat({ lat: w.lat, lng: w.lng }).setRotation(w.heading).addTo(map);
+      if (w.pano !== followedId) { followedId = w.pano; if (!map.getBounds().contains([w.lng, w.lat])) map.easeTo({ center: [w.lng, w.lat] }); }
+    }
+    return;
+  }
   const a = S.runA && S.runA.at(S.index);
   if (!a) return;
   marker.setLngLat(a).setRotation(S.travel + S.yawOffset + S.glance).addTo(map);
@@ -687,7 +726,11 @@ async function openNear(lngLat, metres, label, moved = false) {
   await startRun(img.sequence, img.id, ticket);
 }
 
-map.on('click', (e) => (map.getZoom() < 14 ? map.easeTo({ center: e.lngLat, zoom: 16 }) : openNear(e.lngLat, 30)));
+map.on('click', (e) => {
+  if (map.getZoom() < 14) return map.easeTo({ center: e.lngLat, zoom: 16 });
+  if (S.source === 'sv') return svGo({ lat: e.lngLat.lat, lng: e.lngLat.lng, name: 'the map' });
+  return openNear(e.lngLat, 30);
+});
 
 // ---- place slots -------------------------------------------------------------------------
 // Eight slots (one bank; more banks can come later). A slot is a 360° place:
@@ -734,6 +777,8 @@ function goSlot(n) {
   markSlots();
   map.jumpTo({ center: [slot.lng, slot.lat], zoom: 16 });
   status(`Going to ${slot.name}…`);
+  if (slot.source === 'sv') return setSource('sv', slot);
+  if (S.source === 'sv') setSource('mapillary', null);
   if (slot.sequence) startRun(slot.sequence, slot.image);
   else openNear(slot, 400, slot.name, true);
 }
@@ -747,6 +792,14 @@ function placeName(at) {
 }
 
 function storeSlot(n) {
+  if (S.source === 'sv') {
+    const w = sv.where();
+    if (!w || w.lat === undefined) return status('Street View has nothing to store yet.');
+    slots[n - 1] = { source: 'sv', name: w.description || `${w.lat.toFixed(3)}, ${w.lng.toFixed(3)}`, lat: w.lat, lng: w.lng, pano: w.pano, heading: w.heading, pitch: w.pitch };
+    currentSlot = n;
+    saveSlots();
+    return status(`Stored this Street View in place ${n}. Press ${n} to come back to it.`);
+  }
   const a = S.runA && S.runA.at(S.index);
   if (!a) return status('Nothing playing to store yet.');
   slots[n - 1] = { name: placeName(a), lat: a.lat, lng: a.lng, sequence: S.runA.id, image: S.runA.ids[S.index] };
@@ -765,7 +818,7 @@ function renderSlots() {
     pad.dataset.learn = `place.${n}`;
     pad.title = `Key ${n}`;
     pad.innerHTML = `<span class="n"><b>${n}</b><span class="name" spellcheck="false" title="Double-click to rename"></span></span>` +
-      `<span class="src">${slot.sequence ? 'mapillary · exact photo' : 'mapillary · nearest run'}</span>` +
+      `<span class="src${slot.source === 'sv' ? ' sv' : ''}">${slot.source === 'sv' ? 'street view · exact view' : slot.sequence ? 'mapillary · exact photo' : 'mapillary · nearest run'}</span>` +
       `<button class="store" title="Store the playing photo here (Option+${n})">⤓</button>`;
     const name = pad.querySelector('.name');
     name.textContent = slot.name;
@@ -853,6 +906,7 @@ function sync() {
   syncCamera();
   if (!OUTPUT) {
     renderLive();
+    if (sv) { renderSource(); setSeg('#sv-motion', 'motion', S.svMotion); }
     setSw('#loop', S.loop);
     $('#loop-in').classList.toggle('on', S.loopIn !== null);
     $('#loop-out').classList.toggle('on', S.loopOut !== null);
@@ -949,6 +1003,7 @@ window.addEventListener('keydown', (e) => {
   else if (e.code === 'KeyF') { if (OUTPUT) { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen(); } else fullscreen(); }
   else if (e.code === 'KeyL' && !OUTPUT) setLive(!S.live);
   else if (e.code === 'KeyS') toggleSun();
+  else if (e.code === 'KeyG' && !OUTPUT) setSource(S.source === 'sv' ? 'mapillary' : 'sv');
   else if (e.code === 'KeyV') toggleRecord();
   else if (e.code === 'Escape') { cancelLearn(); $('#midi-panel').hidden = true; closeProjectMenu(); }
   else if (e.code === 'KeyM' && !OUTPUT) setLearnMode(!learnMode);
@@ -1548,6 +1603,7 @@ buildEffects();
 // ---- hold the sun ------------------------------------------------------------------------
 
 function toggleSun() {
+  if (S.source === 'sv') return status("Hold the sun needs Mapillary: Google's pictures can't be read.");
   S.sun = !S.sun;
   if (!S.sun) {
     // Stay looking where the sun was, then carry on from there.
@@ -1566,6 +1622,7 @@ let recorder = null;
 let recordStart = 0;
 
 function toggleRecord() {
+  if (S.source === 'sv' && !recorder) return status("Street View can't be recorded here (Google's picture can't be captured by the page). In the MIDIMap app, record its Syphon output with Syphon Recorder or OBS.", true);
   if (recorder) {
     recorder.stop();
     return;
@@ -1614,11 +1671,11 @@ setInterval(() => {
 // photos, so the output never waits on the editor's screen. Its own channel name,
 // so experiment 3 open in another tab doesn't interfere.
 
-const MIRROR_KEYS = ['bMode', 'delay', 'dir', 'fps', 'mode', 'mix', 'smooth', 'sharp', 'pitch', 'fov', 'follow', 'yawOffset', 'glance', 'sun', 'tempo', 'bpm', 'stepsPerBeat', 'live', 'loop', 'loopIn', 'loopOut'];
+const MIRROR_KEYS = ['bMode', 'delay', 'dir', 'fps', 'mode', 'mix', 'smooth', 'sharp', 'pitch', 'fov', 'follow', 'yawOffset', 'glance', 'sun', 'tempo', 'bpm', 'stepsPerBeat', 'live', 'loop', 'loopIn', 'loopOut', 'source', 'svMotion'];
 const channel = new BroadcastChannel('midimap-editor');
 let posted = '';
 function postState() {
-  posted = `${S.runA?.id}:${S.index}:${S.live}:${S.bMode}:${S.runB?.id}`;
+  posted = `${S.runA?.id}:${S.index}:${S.live}:${S.bMode}:${S.runB?.id}:${S.source}:${sv?.ready ? sv.engine.pano.getPano() : ''}`;
   channel.postMessage({
     S: Object.fromEntries(MIRROR_KEYS.map((k) => [k, S[k]])),
     look: { ...look },
@@ -1626,10 +1683,11 @@ function postState() {
     imageA: S.runA?.ids[S.index] || null,
     runB: S.bMode === 'run' ? S.runB?.id || null : null,
     index: S.index,
+    sv: S.source === 'sv' && sv?.ready ? { pano: sv.engine.pano.getPano(), heading: (sv.engine.heading + sv.glance + 360) % 360, pitch: sv.engine.pitch } : null,
   });
 }
 function postIfMoved() {
-  if (posted !== `${S.runA?.id}:${S.index}:${S.live}:${S.bMode}:${S.runB?.id}`) postState();
+  if (posted !== `${S.runA?.id}:${S.index}:${S.live}:${S.bMode}:${S.runB?.id}:${S.source}:${sv?.ready ? sv.engine.pano.getPano() : ''}`) postState();
 }
 
 if (OUTPUT) {
@@ -1638,6 +1696,9 @@ if (OUTPUT) {
   channel.onmessage = async ({ data }) => {
     for (const k of MIRROR_KEYS) S[k] = data.S[k];
     Object.assign(look, data.look);
+    svState = data.sv;
+    sv.show(S.source === 'sv');
+    if (S.source === 'sv' && !sv.engine) sv.start().catch((err) => status(err.message, true));
     if (data.runA && data.runA !== S.runA?.id && data.runA !== loadingA) {
       loadingA = data.runA;
       await startRun(data.runA, data.imageA);
@@ -1852,7 +1913,8 @@ function captureProject(name = project.name) {
     name,
     savedAt: Date.now(),
     places: slots.map((x) => ({ ...x })),
-    layers: { mode: S.mode, mix: S.mix, smooth: S.smooth, bMode: S.bMode, delay: S.delay, runB: S.bMode === 'run' ? S.runB?.id || null : null },
+    layers: { source: S.source, mode: S.mode, mix: S.mix, smooth: S.smooth, bMode: S.bMode, delay: S.delay, runB: S.bMode === 'run' ? S.runB?.id || null : null },
+    streetview: S.source === 'sv' || svWhere ? { ...(sv.where() || svWhere), motion: S.svMotion } : null,
     effects: Object.fromEntries(Object.keys(neutralLook()).map((k) => [k, look[k]])),
     camera: { fov: S.fov, pitch: S.pitch, follow: S.follow, sun: S.sun, sharp: S.sharp },
     playback: { dir: S.dir, fps: S.fps, photo: S.runA ? { sequence: S.runA.id, image: S.runA.ids[S.index] } : null, slot: currentSlot,
@@ -1902,6 +1964,11 @@ function applySettings(p) {
 }
 
 async function goToProjectPhoto(p) {
+  if (p.layers?.source === 'sv' && p.streetview?.pano) {
+    S.svMotion = p.streetview.motion || 'travel';
+    return setSource('sv', p.streetview);
+  }
+  if (S.source === 'sv') setSource('mapillary', null);
   const photo = p.playback?.photo;
   if (!photo) return goSlot(p.playback?.slot || START_SLOT);
   await startRun(photo.sequence, photo.image);
@@ -2378,6 +2445,9 @@ function drawStrip() {
 const COMPASS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
 let factsKey = '';
 function runFacts() {
+  $('#strip').hidden = S.source === 'sv';
+  $('#strip').nextElementSibling.hidden = S.source === 'sv';
+  if (S.source === 'sv') return svFacts();
   const A = S.runA;
   const a = A && A.at(S.index);
   if (!a) {
@@ -2408,6 +2478,7 @@ function runFacts() {
 const credits = new Map();
 let placeKey = '';
 function placeFacts() {
+  if (S.source === 'sv') return svPlaceFacts();
   const A = S.runA;
   if (!A || !$('#place-facts').clientWidth) return;
   const id = A.ids[S.index];
@@ -2478,3 +2549,109 @@ if (!OUTPUT) {
   renderLoop();
 }
 if (!OUTPUT) Object.assign(window.blend, { runFacts, drawStrip }); // for tests and the console
+
+// ---- Street View as layer A (phase 6; the layer itself is in streetview.js) --------------------
+
+sv = new StreetViewLayer($('#monitor'), {
+  onError: (msg) => status(msg, true),
+  onMove: (w) => { svWhere = w; },
+});
+// Keep the HUD, badges and hints above Google's picture.
+$('#monitor').insertBefore(sv.stage, $('#view').nextSibling);
+
+async function svGo(place) {
+  try {
+    status(`Street View: going to ${place.name || 'the map'}…`);
+    svWhere = await sv.goTo(place);
+    svYaw = S.yawOffset;
+    status(svWhere.description ? `Street View: ${svWhere.description}.` : 'Street View.');
+  } catch (err) {
+    status(err.message.startsWith('Google') ? err.message : `Street View: ${err.message}`, true);
+  }
+}
+
+// G (or the layer A buttons): switch between Mapillary and Street View.
+// Street View starts where the Mapillary photo is (and the other way round).
+async function setSource(source, place) {
+  if (source === S.source && !place) return;
+  if (source === 'sv') {
+    const a = S.runA?.at(S.index);
+    // From Mapillary: the same spot, facing the same way.
+    const where = place || svWhere || (a && { lat: a.lat, lng: a.lng, heading: S.travel + S.yawOffset, pitch: S.pitch, name: 'this Mapillary photo' }) || { ...slots[(currentSlot || START_SLOT) - 1] };
+    S.source = 'sv';
+    sv.show(true);
+    sync();
+    await svGo(where);
+  } else {
+    S.source = 'mapillary';
+    sv.show(false);
+    sync();
+    const w = svWhere;
+    if (place === undefined && w && (!S.runA || !S.runA.at(S.index) || distance(S.runA.at(S.index), w) > 200)) openNear({ lat: w.lat, lng: w.lng }, 400, 'this Street View', false);
+  }
+  postState();
+}
+
+// What doesn't apply to Google's picture greys out (and says why).
+function renderSource() {
+  const on = S.source === 'sv';
+  setSeg('#source', 'src', S.source);
+  for (const id of ['#layer-b-frame', '#blend-frame']) $(id).classList.toggle('na', on);
+  for (const id of ['#sun', '#sharp']) $(id).classList.toggle('na', on);
+  for (const [id, r] of rows) {
+    const na = on && !SV_EFFECTS.has(id);
+    r.row.classList.toggle('na', na);
+    r.row.title = na ? "Not possible on Street View: Google's pictures can't be read" : '';
+  }
+  $('#sv-motion').hidden = !on;
+  for (const id of ['#loop-in', '#loop-out', '#loop']) $(id).hidden = on;
+  $('#sv-note').hidden = !on;
+}
+
+if (!OUTPUT) {
+  for (const b of $('#source').querySelectorAll('[data-src]')) b.addEventListener('click', () => setSource(b.dataset.src));
+  for (const b of $('#sv-motion').querySelectorAll('[data-motion]')) b.addEventListener('click', () => { S.svMotion = b.dataset.motion; sync(); });
+  controls.set('source', { id: 'source', label: 'layer a: mapillary / street view', kind: 'choice', options: ['mapillary', 'sv'], get: () => S.source, set: (v) => setSource(v) });
+  controls.set('sv.motion', { id: 'sv.motion', label: 'street view: travel / drift', kind: 'choice', options: ['travel', 'drift'], get: () => S.svMotion, set: (v) => { S.svMotion = v; sync(); } });
+  $('#source').dataset.learn = 'source';
+  $('#sv-motion').dataset.learn = 'sv.motion';
+  Object.assign(window.blend, { setSource });
+}
+window.blend.sv = sv; // for tests and the console (the output windows too)
+
+// Under the picture while Street View shows: its own details instead of a run's.
+function svFacts() {
+  const w = sv?.where();
+  const key = `sv:${w?.pano}:${w?.heading}`;
+  if (!w || w.lat === undefined || key === factsKey) return;
+  factsKey = key;
+  const fact = (label, text) => `<div><span>${label}</span>${text}</div>`;
+  $('#run-facts').innerHTML =
+    fact('street view', w.description || 'here') +
+    fact('here', `${w.lat.toFixed(5)}, ${w.lng.toFixed(5)}`) +
+    fact('heading', `${w.heading}° ${COMPASS[Math.round(w.heading / 45) % 8]}`) +
+    fact('moving', S.svMotion === 'travel' ? 'travel: one hop along the road per step (at most every 0.9 s)' : 'drift: turning in place') +
+    '<p class="note" style="grid-column: 1 / -1">Street View has no run to show as a strip: it is a web of panoramas, and travel hops to the next one along the road.</p>';
+}
+
+function svPlaceFacts() {
+  const w = sv?.where();
+  if (!w || w.lat === undefined || !$('#place-facts').clientWidth) return;
+  const key = `sv:${w.pano}:${currentSlot}`;
+  if (key === placeKey) return;
+  placeKey = key;
+  const slot = slots[currentSlot - 1];
+  if (document.activeElement !== $('#place-name')) {
+    $('#place-name').value = slot ? slot.name : '';
+    $('#place-name').disabled = !slot;
+  }
+  $('#place-slot').replaceChildren(...slots.map((x, i) => Object.assign(document.createElement('option'), { value: String(i + 1), textContent: `${i + 1} · ${x.name}` })));
+  $('#place-slot').value = String(currentSlot || 1);
+  const fact = (label, html) => `<div><span>${label}</span>${html}</div>`;
+  $('#place-facts').innerHTML =
+    fact('address', w.description || '—') +
+    fact('panorama', w.pano) +
+    fact('imagery', '© Google (Street View)') +
+    fact('position', `${w.lat.toFixed(5)}, ${w.lng.toFixed(5)}`);
+  $('#place-note').innerHTML = `<a href="https://www.google.com/maps/@?api=1&map_action=pano&pano=${encodeURIComponent(w.pano)}" target="_blank" rel="noopener">open it in Google Maps</a>. Google's imagery can be shown live but not recorded or stored here.`;
+}

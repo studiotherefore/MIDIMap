@@ -75,10 +75,11 @@
     <div class="inner">
       <div class="frame">
         <h3>layer a</h3>
-        <span class="seg"><button class="on">mapillary</button><button disabled title="comes in phase 6">street view</button></span>
+        <span class="seg" id="source" title="G"><button data-src="mapillary">mapillary</button><button data-src="sv">street view</button></span>
+        <p id="sv-note" class="note" hidden>Google Street View: drag the picture to look around, click the map to go there. Effects it can't take are greyed out (Google's pictures can't be read), and so are layer B and blending.</p>
         <p id="a-info" class="note">Green lines on the map are 360° runs. Click one to play it.</p>
       </div>
-      <div class="frame">
+      <div class="frame" id="layer-b-frame">
         <h3>layer b</h3>
         <span class="seg" id="bmode">
           <button data-b="delay">same run, delayed</button><button data-b="run">another run here</button><button data-b="off">off</button>
@@ -87,7 +88,7 @@
         <p class="note">Other 360° runs on this street (click one):</p>
         <ol id="runs"></ol>
       </div>
-      <div class="frame">
+      <div class="frame" id="blend-frame">
         <h3>blend a + b <span>[ ]</span></h3>
         <div id="modes" class="buttons"></div>
         <div class="row"><span>mix <span class="cc">cc 74</span></span><input type="range" id="mix" min="0" max="1" step="0.01" value="0.5"><span class="v" id="mix-val"></span></div>
@@ -106,6 +107,7 @@
     <div class="transport">
       <button id="play" title="Space">play</button>
       <button id="step-back" title="←">◀ step</button><button id="step-fwd" title="→">step ▶</button>
+      <span class="seg" id="sv-motion" title="street view: hop along the road, or turn in place" hidden><button data-motion="travel">travel</button><button data-motion="drift">drift</button></span>
       <span class="seg" id="direction" title="R"><button data-dir="1">forward</button><button data-dir="-1">backward</button></span>
       <span class="sep"></span>
       <button id="loop-in" title="loop in (I)">in</button><button id="loop-out" title="loop out (O)">out</button>
@@ -237,6 +239,7 @@
     <div class="inner" data-tab-panel="keys" hidden>
       <table class="keys">
         <tr><td>Space · ← →</td><td>play/pause · step a photo</td></tr>
+        <tr><td>G</td><td>layer A: Mapillary ↔ Google Street View (starts where you are)</td></tr>
         <tr><td>R</td><td>forward / backward</td></tr>
         <tr><td>I · O · Shift+I</td><td>loop in · loop out (here) · loop on/off; click or drag the run strip to jump</td></tr>
         <tr><td>↑ ↓ · drag · wheel</td><td>look up · horizon · look around · zoom</td></tr>

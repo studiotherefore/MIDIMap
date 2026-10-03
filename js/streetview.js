@@ -131,19 +131,24 @@ export class StreetViewEngine {
     }
     return new Promise((resolve) => {
       let finished = false;
+      // Declared first: Google can report a status (e.g. a refused key) before
+      // the listeners below have all been added.
+      let onStatus = null;
+      let onPano = null;
+      let timer = null;
       const done = (s) => {
         if (finished) return;
         finished = true;
-        onStatus.remove();
-        onPano.remove();
+        onStatus?.remove();
+        onPano?.remove();
         clearTimeout(timer);
         resolve(s);
       };
-      const onStatus = this.pano.addListener('status_changed', () => done(this.pano.getStatus()));
+      onStatus = this.pano.addListener('status_changed', () => done(this.pano.getStatus()));
       // status_changed may not fire if the status was already OK; give it a moment, then read it.
-      const onPano = this.pano.addListener('pano_changed', () =>
+      onPano = this.pano.addListener('pano_changed', () =>
         setTimeout(() => done(this.pano.getStatus() || 'unknown status'), 400));
-      const timer = setTimeout(() => done('no response after 12 seconds'), 12000);
+      timer = setTimeout(() => done('no response after 12 seconds'), 12000);
       this.pano.setPano(panoId);
       this._applyPov(true);
     });

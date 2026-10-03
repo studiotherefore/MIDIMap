@@ -268,6 +268,23 @@ stay frozen (experiment 3 started as a copy of 2).
   while the tab shows; "none" hidden), licence, other dates, mapillary.com
   link. After a jump the facts say "loading this part of the run…" until the
   details arrive. 19 checks on real Mapillary.
+- Phase 6, **Street View as layer A** (`editor/streetview.js`, built on the
+  instrument's `js/streetview.js` engine with `speed = 0` so the editor drives
+  it): G or the layer A buttons switch source (starting where the Mapillary
+  photo is, facing the same way). Google loads only on first use (billed per
+  panorama). Travel = `hop()` on the tempo grid / speed, skipped (never
+  queued) while a hop loads or < 0.9 s since the last; drift = turning at
+  speed × 3°/s; turn knob, look up, field of view (zoom), glance drive the
+  view; dragging the viewer is adopted. Effects = CSS filters + SVG posterize
+  + tint/grain/fade overlays (`SV_EFFECTS`); the rest, layer B, blend, hold
+  the sun and recording are greyed out or explained. Places can be Street
+  View (`source: 'sv'`, pano + pov); projects keep `layers.source` and
+  `streetview`; the output follows (`sv` in the mirror, eased). The key must
+  allow each address: http://localhost:8765/* was missing for the app
+  (RefererNotAllowedMapError, shown in plain words). Fixed in the engine:
+  a status arriving before its listeners were set (affected the instrument
+  too). Panels under the picture are wrapped so they can't stop the frame
+  loop. 23 checks with the Maps stand-in + a real run on localhost:8000.
 - Verified 2026-10-01 with Playwright: 42 parity checks (keys, mouse, fake
   MiniLab, learn, looks with a faked API, output mirroring, recording), the
   clock and kick timing tests.
