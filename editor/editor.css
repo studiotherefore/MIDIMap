@@ -268,3 +268,10 @@ body.midi-learn .topbar #midi-learn { background: var(--hot); color: #000; }
 .frame.na, .fx-row.na, .sw.na { opacity: .4; }
 .frame.na *, .sw.na { pointer-events: none; }
 .slot .src.sv::before { color: var(--sv); }
+
+/* ---- the site menu (phase 7) ---- */
+button.mark { background: none; border: none; padding: 4px 6px 4px 0; cursor: pointer; }
+button.mark:hover, button.mark.on { color: var(--hot); }
+#site-menu { left: 8px; right: auto; width: 600px; }
+#site-menu .links a { display: flex; justify-content: space-between; gap: 12px; width: 100%; color: var(--txt); text-decoration: none; }
+#site-menu .links li:hover a { color: var(--hot); }

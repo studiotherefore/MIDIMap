@@ -8,7 +8,7 @@ import { loadLocations, saveLocationOverride, resetLocations, SLOTS } from './lo
 const KEY_STORAGE = 'midimap.apiKey';
 // Served by the host: a git-ignored file locally ({"mapsApiKey": "…"}), the
 // MAPS_API_KEY secret on Cloudflare (src/worker.js). Never committed.
-const KEY_FILE = 'config.local.json';
+const KEY_FILE = '/config.local.json'; // from the site root: this page lives at /streetview/
 
 let locations = loadLocations();
 const getLocations = () => locations;

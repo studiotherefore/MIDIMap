@@ -12,7 +12,7 @@
 <div id="learn-layer"></div>
 <div class="app">
   <header class="topbar">
-    <span class="mark">midimap<i>∴</i></span>
+    <button id="site-btn" class="mark" title="MIDIMap: the editor, the Street View instrument, the experiments">midimap<i>∴</i></button>
     <div class="group" title="the whole setup">
       <button id="project-btn" title="projects">project: <span id="project-name">untitled</span> ▾</button>
       <button id="project-save" title="save the project (⌘S)">save</button>
@@ -36,6 +36,17 @@
     <div class="group">
       <button id="record" class="rec" title="record what the output shows, with the kick (V)">rec <kbd>V</kbd></button>
       <button id="live" class="live" title="live: the output shows the picture; off: it fades to black (L)">live <kbd>L</kbd></button>
+    </div>
+    <div class="menu" id="site-menu" hidden>
+      <h3>midimap</h3>
+      <ul class="list links">
+        <li><a href="./"><span>editor</span><span class="dim">this page</span></a></li>
+        <li><a href="../streetview/" target="_blank"><span>street view instrument</span><span class="dim">google street view, midi learn</span></a></li>
+        <li><a href="../experiments/mapillary/" target="_blank"><span>experiment 1 · mapillary explorer</span><span class="dim">coverage, capture details</span></a></li>
+        <li><a href="../experiments/blend/" target="_blank"><span>experiment 2 · two-layer blend</span><span class="dim">a run against itself</span></a></li>
+        <li><a href="../experiments/fx/" target="_blank"><span>experiment 3 · effects</span><span class="dim">where the editor began</span></a></li>
+      </ul>
+      <p class="note">The others open in a new tab, so this editor (and its output window) keeps running. The experiments stay as they were, as a record of how MIDIMap got here.</p>
     </div>
     <div class="menu" id="project-menu" hidden>
       <h3>projects</h3>

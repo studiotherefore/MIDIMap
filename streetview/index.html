@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MIDIMap · Street View instrument</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+  <!-- Google overwrites the pano element's own positioning, so the full-screen frame is a wrapper. -->
+  <div id="stage"><div id="pano"></div></div>
+
+  <div id="hud">
+    <div id="hud-location">—</div>
+    <div class="row">
+      <span id="hud-mode"></span>
+      <span id="hud-speed"></span>
+      <span id="hud-midi"></span>
+    </div>
+    <div id="hud-status"></div>
+  </div>
+
+  <div id="checklist">
+    <h2>Starting up</h2>
+    <ul id="checklist-items"><li class="fail"><span class="mark"></span><span>Page scripts loaded</span></li></ul>
+    <p id="checklist-help">If this message stays, the page's scripts did not run. Try a hard reload (Cmd/Ctrl + Shift + R) in Chrome or Edge.</p>
+    <p class="buttons" id="checklist-buttons" hidden>
+      <button id="checklist-key">Change API key</button>
+      <button id="checklist-retry">Try again</button>
+    </p>
+  </div>
+
+  <div id="learn-banner" hidden></div>
+  <div id="toast"></div>
+  <button id="panel-toggle" title="Mappings (` key)">⚙</button>
+
+  <aside id="panel" hidden>
+    <header>
+      <h1>MIDIMap · Street View <a class="home" href="../editor/" title="The MIDIMap editor">← editor</a></h1>
+      <button id="panel-close" title="Close (Esc)">×</button>
+    </header>
+
+    <section>
+      <h2>Google Maps key</h2>
+      <form id="api-key-form">
+        <input id="api-key" type="password" placeholder="Google Maps JavaScript API key" autocomplete="off">
+        <button type="submit">Save &amp; reload</button>
+      </form>
+      <p id="api-key-state"></p>
+      <p id="api-key-message" class="note"></p>
+      <p class="note">Stored only in this browser. You can also open the page with <code>?key=…</code>, or, when running locally, put it in <code>config.local.json</code> next to <code>index.html</code>.</p>
+    </section>
+
+    <section>
+      <h2>MIDI</h2>
+      <p><span id="midi-status">—</span> <button id="midi-start">Enable MIDI</button></p>
+      <p class="note">Last input: <span id="activity">—</span></p>
+    </section>
+
+    <section>
+      <h2>Keyboard controller</h2>
+      <p><span id="virtual-status">—</span> <button id="virtual-toggle">Turn on (P)</button></p>
+      <p class="note">A pretend MIDI controller on the keyboard. It turns on by itself when no controller is connected and off when one is plugged in. Hold a knob key to turn it; add Shift for fine moves.</p>
+      <table class="layout"><tbody id="virtual-layout"></tbody></table>
+    </section>
+
+    <section>
+      <h2>Mappings</h2>
+      <p class="note">Click <b>Learn</b>, then press a key or move a MIDI control. Knob/fader actions accept CC, pitch bend or aftertouch only. An endless knob (one that keeps turning, like the MiniLab's main knob) is recognised while learning and marked ∞; click ∞ / ⇥ on a mapping to switch it by hand.</p>
+      <table>
+        <tbody id="mappings"></tbody>
+      </table>
+      <p class="buttons">
+        <button id="export">Export setup</button>
+        <label class="button">Import setup<input id="import" type="file" accept="application/json" hidden></label>
+        <button id="reset-bindings">Reset mappings</button>
+      </p>
+    </section>
+
+    <section>
+      <h2>Locations</h2>
+      <p class="note">Shift + number stores the current view in that slot.</p>
+      <ol id="locations"></ol>
+      <p class="buttons"><button id="reset-locations">Restore presets</button></p>
+    </section>
+
+    <section>
+      <h2>Reserved keys</h2>
+      <p class="note"><kbd>`</kbd> this panel · <kbd>H</kbd> hide HUD · <kbd>F</kbd> fullscreen · <kbd>P</kbd> keyboard controller · <kbd>Esc</kbd> cancel learn / close</p>
+    </section>
+  </aside>
+
+  <script type="module" src="../js/main.js"></script>
+</body>
+</html>

@@ -1005,7 +1005,7 @@ window.addEventListener('keydown', (e) => {
   else if (e.code === 'KeyS') toggleSun();
   else if (e.code === 'KeyG' && !OUTPUT) setSource(S.source === 'sv' ? 'mapillary' : 'sv');
   else if (e.code === 'KeyV') toggleRecord();
-  else if (e.code === 'Escape') { cancelLearn(); $('#midi-panel').hidden = true; closeProjectMenu(); }
+  else if (e.code === 'Escape') { cancelLearn(); $('#midi-panel').hidden = true; $('#site-menu').hidden = true; closeProjectMenu(); }
   else if (e.code === 'KeyM' && !OUTPUT) setLearnMode(!learnMode);
   else if (e.code === 'KeyI' && e.shiftKey && !OUTPUT) toggleLoop();
   else if (e.code === 'KeyI' && !OUTPUT) setLoopPoint('in');
@@ -2654,4 +2654,15 @@ function svPlaceFacts() {
     fact('imagery', '© Google (Street View)') +
     fact('position', `${w.lat.toFixed(5)}, ${w.lng.toFixed(5)}`);
   $('#place-note').innerHTML = `<a href="https://www.google.com/maps/@?api=1&map_action=pano&pano=${encodeURIComponent(w.pano)}" target="_blank" rel="noopener">open it in Google Maps</a>. Google's imagery can be shown live but not recorded or stored here.`;
+}
+
+// ---- the site menu (phase 7): the wordmark lists the rest of MIDIMap ----
+if (!OUTPUT) {
+  $('#site-btn').addEventListener('click', () => {
+    $('#site-menu').hidden = !$('#site-menu').hidden;
+    $('#midi-panel').hidden = true;
+    closeProjectMenu();
+    $('#site-btn').classList.toggle('on', !$('#site-menu').hidden);
+  });
+  for (const a of document.querySelectorAll('#site-menu a')) a.addEventListener('click', () => { $('#site-menu').hidden = true; $('#site-btn').classList.remove('on'); });
 }

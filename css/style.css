@@ -199,3 +199,6 @@ table.layout td:first-child { white-space: nowrap; width: 1%; padding-right: 12p
 #locations li { padding: 3px 0; }
 #locations em { color: var(--accent); font-style: normal; font-size: 11px; }
 kbd, code { border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+
+#panel h1 .home { font-size: 11px; letter-spacing: 0.04em; color: var(--dim); margin-left: 8px; text-decoration: none; }
+#panel h1 .home:hover { color: var(--accent); }

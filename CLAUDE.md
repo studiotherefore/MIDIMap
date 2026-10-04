@@ -12,7 +12,8 @@ files or config; reading Drift for ideas is fine.
 
 Three parts, one codebase:
 
-1. **The instrument** (repo root: `index.html`, `js/`): Google Street View,
+1. **The instrument** (`streetview/index.html` since phase 7, with `js/` and
+   `css/` still at the root, shared with the editor): Google Street View,
    MIDI learn, keyboard stand-in controller, Arturia MiniLab 3 support. Web only.
 2. **Experiments** (`experiments/`): a series of small, separate studies on
    Mapillary imagery (open, CC-BY-SA, pixels readable). The author is using
@@ -25,8 +26,9 @@ Three parts, one codebase:
    experiment 3, following `EDITOR-PLAN.md` (layout C from
    `mockups/editor.html`, Drift's look). Phases 1 (layout + Mapillary, parity
    with experiment 3), 2 (live, output window, app), 3 (projects), 4
-   (MIDI panel, controller profiles) and 5 (run strip, loop, place details)
-   are done; 6–8 are in the plan.
+   (MIDI panel, controller profiles), 5 (run strip, loop, place details),
+   6 (Street View as a source) and 7 (site: the editor is the front page)
+   are done; 8 (sequences, via experiments first) is next.
 
 ## The author and how to work with them
 
@@ -51,7 +53,7 @@ Three parts, one codebase:
 |---|---|
 | Project folder | `~/Desktop/Claude AI/experimental/MIDImap` |
 | GitHub (public, backup only) | https://github.com/studiotherefore/MIDIMap, single branch `main` (default) |
-| Live site | https://midimap.studiotherefore.workers.dev (Cloudflare Worker `midimap`, account studiotherefore@gmail.com) |
+| Live site | https://midimap.studiotherefore.workers.dev (Cloudflare Worker `midimap`, account studiotherefore@gmail.com). `/` forwards to `/editor/` (root `index.html`, keeps `?…`); the instrument is at `/streetview/` |
 | Experiments online | `/experiments/mapillary/`, `/experiments/blend/`, `/experiments/fx/` |
 | Local server | `npm start` → http://localhost:8000 (127.0.0.1 only, `Cache-Control: no-cache`) |
 | The app | double-click `MIDIMap.app` in the project folder (git-ignored AppleScript launcher) or `npm start` in `app/`; serves itself on 127.0.0.1:8765 |
@@ -285,6 +287,16 @@ stay frozen (experiment 3 started as a copy of 2).
   a status arriving before its listeners were set (affected the instrument
   too). Panels under the picture are wrapped so they can't stop the frame
   loop. 23 checks with the Maps stand-in + a real run on localhost:8000.
+- Phase 7, **site**: root `index.html` forwards to `editor/` (meta refresh +
+  `location.replace`, works on both servers without Worker changes); the
+  instrument's page moved to `streetview/index.html` (`../css`, `../js`;
+  `KEY_FILE` is now `/config.local.json`, it was relative). The editor's
+  wordmark opens a site menu (links open in a new tab so a running editor and
+  its output keep going); the instrument and experiments 1–3 link back
+  ("← editor"). `tests/smoke.mjs` serves folders' index.html, opens the
+  instrument at `/streetview/` and checks the forward. The Google key allows
+  http://localhost:8000/*, http://localhost:8765/* (added 2026-10-03 for the
+  app) and the live site.
 - Verified 2026-10-01 with Playwright: 42 parity checks (keys, mouse, fake
   MiniLab, learn, looks with a faked API, output mirroring, recording), the
   clock and kick timing tests.

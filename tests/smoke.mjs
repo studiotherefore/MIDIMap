@@ -18,7 +18,8 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
-  const file = path.join(root, url.pathname === '/' ? 'index.html' : url.pathname);
+  let file = path.join(root, url.pathname);
+  if (url.pathname.endsWith('/')) file = path.join(file, 'index.html'); // folders serve their index.html, like the real servers
   // Never serve the author's real key file (config.local.json) to the tests.
   if (!file.startsWith(root) || file.endsWith('.local.json') || !fs.existsSync(file)) { res.writeHead(404).end(); return; }
   res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream' });
@@ -31,6 +32,21 @@ let failures = 0;
 function check(name, ok, detail = '') {
   console.log(`${ok ? 'ok  ' : 'FAIL'}  ${name}${detail ? `  (${detail})` : ''}`);
   if (!ok) failures += 1;
+}
+
+// The site: the front page forwards to the editor; the instrument lives at /streetview/.
+async function siteChecks() {
+  const p = await browser.newPage();
+  await p.route(/maps\.googleapis|api\/|tile\.openstreetmap|mapillary|jsdelivr/, (r) => r.abort());
+  await p.goto(`${base}/`);
+  await p.waitForURL(/\/editor\/$/, { timeout: 5000 }).catch(() => {});
+  check('site: the front page opens the editor', p.url().endsWith('/editor/'), p.url());
+  await p.goto(`${base}/?x=1`);
+  await p.waitForURL(/\/editor\/\?x=1$/, { timeout: 5000 }).catch(() => {});
+  check('site: the forward keeps ?options', p.url().endsWith('/editor/?x=1'), p.url());
+  await p.goto(`${base}/streetview/`);
+  check('site: the instrument links back to the editor', (await p.getAttribute('#panel h1 a', 'href')) === '../editor/');
+  await p.close();
 }
 
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
@@ -63,7 +79,7 @@ const learn = (page, rowText) => page.locator('#mappings tr', { hasText: rowText
 
 // ---- startup ---------------------------------------------------------------
 {
-  const page = await open(`${base}/?key=TESTabcd`);
+  const page = await open(`${base}/streetview/?key=TESTabcd`);
   const steps = await page.$$eval('#checklist-items li', (l) => l.map((x) => x.className));
   check('startup checklist all green', steps.length === 5 && steps.every((s) => s === 'ok'), steps.join(','));
   check('startup: no "Change API key / Try again" buttons after success', !(await page.isVisible('#checklist-buttons')));
@@ -178,7 +194,7 @@ const learn = (page, rowText) => page.locator('#mappings tr', { hasText: rowText
 
 // ---- keyboard stand-in controller -------------------------------------------------
 {
-  const page = await open(`${base}/?key=TESTabcd`, { device: false });
+  const page = await open(`${base}/streetview/?key=TESTabcd`, { device: false });
   const hold = async (key, ms) => { await page.keyboard.down(key); await page.waitForTimeout(ms); await page.keyboard.up(key); };
 
   check('stand-in: on when no controller', (await text(page, '#hud-midi')) === 'input: keyboard controller');
@@ -231,7 +247,7 @@ const learn = (page, rowText) => page.locator('#mappings tr', { hasText: rowText
 
 // ---- imagery source: Google's car imagery first, contributed photos only as a fallback ----
 {
-  const page = await open(`${base}/?key=TESTabcd`, {
+  const page = await open(`${base}/streetview/?key=TESTabcd`, {
     setup: (p) => p.addInitScript(() => localStorage.setItem('midimap.locations.v1',
       JSON.stringify({ 9: { name: 'Polar test', lat: 85, lng: 0, heading: 0, pitch: 0 } }))),
   });
@@ -247,7 +263,7 @@ const learn = (page, rowText) => page.locator('#mappings tr', { hasText: rowText
 
 // ---- mappings saved by the first version gain the new defaults -------------------------
 {
-  const page = await open(`${base}/?key=TESTabcd`, {
+  const page = await open(`${base}/streetview/?key=TESTabcd`, {
     setup: (p) => p.addInitScript(() => {
       if (sessionStorage.getItem('seeded')) return;
       sessionStorage.setItem('seeded', '1');
@@ -263,7 +279,7 @@ const learn = (page, rowText) => page.locator('#mappings tr', { hasText: rowText
 
 // ---- key from config.local.json -----------------------------------------------------
 {
-  const page = await open(`${base}/`, {
+  const page = await open(`${base}/streetview/`, {
     setup: (p) => p.route('**/config.local.json', (r) => r.fulfill({ contentType: 'application/json', body: '{"mapsApiKey":"FILEwxyz"}' })),
   });
   const steps = await page.$$eval('#checklist-items li', (l) => l.map((x) => x.className));
@@ -274,7 +290,7 @@ const learn = (page, rowText) => page.locator('#mappings tr', { hasText: rowText
 
 // ---- no key ------------------------------------------------------------------
 {
-  const page = await open(`${base}/`, { mock: false });
+  const page = await open(`${base}/streetview/`, { mock: false });
   const steps = await page.$$eval('#checklist-items li', (l) => l.map((x) => x.className));
   check('no key: checklist flags the key step', steps[1] === 'fail', steps.join(','));
   check('no key: settings panel opens', await page.isVisible('#panel'));
@@ -375,6 +391,7 @@ const learn = (page, rowText) => page.locator('#mappings tr', { hasText: rowText
   check('worker: local key file is never uploaded', /^\*\.local\.json$/m.test(ignore));
 }
 
+await siteChecks();
 await browser.close();
 server.close();
 console.log(failures ? `\n${failures} check(s) failed` : '\nall checks passed');
