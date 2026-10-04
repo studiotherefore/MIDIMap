@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>MIDIMap editor</title>
+  <title>MIDIMap · Experiment 4: performance recorder</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">
   <link rel="stylesheet" href="editor.css">
   <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
@@ -40,12 +40,12 @@
     <div class="menu" id="site-menu" hidden>
       <h3>midimap</h3>
       <ul class="list links">
-        <li><a href="./"><span>editor</span><span class="dim">this page</span></a></li>
-        <li><a href="../streetview/" target="_blank"><span>street view instrument</span><span class="dim">google street view, midi learn</span></a></li>
-        <li><a href="../experiments/mapillary/" target="_blank"><span>experiment 1 · mapillary explorer</span><span class="dim">coverage, capture details</span></a></li>
-        <li><a href="../experiments/blend/" target="_blank"><span>experiment 2 · two-layer blend</span><span class="dim">a run against itself</span></a></li>
-        <li><a href="../experiments/fx/" target="_blank"><span>experiment 3 · effects</span><span class="dim">where the editor began</span></a></li>
-        <li><a href="../experiments/record/" target="_blank"><span>experiment 4 · performance recorder</span><span class="dim">record takes, play them back on the beat</span></a></li>
+        <li><a href="../../editor/" target="_blank"><span>editor</span><span class="dim">the main tool</span></a></li>
+        <li><a href="./"><span>experiment 4 · performance recorder</span><span class="dim">this page</span></a></li>
+        <li><a href="../../streetview/" target="_blank"><span>street view instrument</span><span class="dim">google street view, midi learn</span></a></li>
+        <li><a href="../mapillary/" target="_blank"><span>experiment 1 · mapillary explorer</span><span class="dim">coverage, capture details</span></a></li>
+        <li><a href="../blend/" target="_blank"><span>experiment 2 · two-layer blend</span><span class="dim">a run against itself</span></a></li>
+        <li><a href="../fx/" target="_blank"><span>experiment 3 · effects</span><span class="dim">where the editor began</span></a></li>
       </ul>
       <p class="note">The others open in a new tab, so this editor (and its output window) keeps running. The experiments stay as they were, as a record of how MIDIMap got here.</p>
     </div>
@@ -132,7 +132,7 @@
       <div class="tabs" id="below-tabs">
         <button data-below="run" class="on">this run</button>
         <button data-below="place">this place</button>
-        <button data-below="seq">sequence <span class="dim">· experiment first</span></button>
+        <button data-below="seq">sequence <span class="dim">· experiment 4</span></button>
       </div>
       <div class="inner" data-below-panel="run">
         <canvas id="strip" title="click or drag to go anywhere in the run"></canvas>
@@ -148,7 +148,28 @@
         <p class="note" id="place-note"></p>
       </div>
       <div class="inner" data-below-panel="seq" hidden>
-        <p class="note later">How sequences are recorded and edited is still open: each approach gets its own experiment first, then the chosen one lands here.</p>
+        <div class="take-bar">
+          <button id="take-rec" class="rec" title="record a take (Q)">record take <kbd>Q</kbd></button>
+          <button id="take-play" title="play the take from the next beat (W)">▶ play take <kbd>W</kbd></button>
+          <span class="sw" id="take-loop" role="switch" tabindex="0" title="Shift+W"><i></i>loop</span>
+          <span class="sw" id="take-rev" role="switch" tabindex="0"><i></i>reverse</span>
+          <span class="seg" id="take-rate" title="playback speed"><button data-rate="0.5">½×</button><button data-rate="1">1×</button><button data-rate="2">2×</button></span>
+          <span class="dim" id="take-loop-info" title="I / O set the take's loop at the playhead (on whole beats)"></span>
+          <button id="take-clear-loop" title="loop the whole take again">clear loop</button>
+        </div>
+        <div class="take-bar" id="take-launchers"></div>
+        <div class="take-bar">
+          <select id="take-list" aria-label="Take"></select>
+          <input id="take-name" type="text" maxlength="60" placeholder="name" aria-label="Take name">
+          <button id="take-trim-in" title="cut everything before the playhead">trim start here</button>
+          <button id="take-trim-out" title="cut everything after the playhead">trim end here</button>
+          <button id="take-export">export</button>
+          <label class="button">import<input type="file" id="take-import" accept="application/json,.json" hidden></label>
+          <button id="take-delete">delete</button>
+          <span class="inline"><select id="take-pad" aria-label="Pad"></select><button id="take-to-pad">put on pad</button></span>
+        </div>
+        <p class="note" id="take-info">Press Q to record a take: everything you play (places, photos, looking, effects, live, kick) is kept against the beat. W plays it back on the next beat.</p>
+        <div id="lanes"></div>
       </div>
     </div>
   </main>
@@ -252,6 +273,9 @@
       <table class="keys">
         <tr><td>Space · ← →</td><td>play/pause · step a photo</td></tr>
         <tr><td>G</td><td>layer A: Mapillary ↔ Google Street View (starts where you are)</td></tr>
+        <tr><td>Q · W · Shift+W</td><td>record a take (start/stop) · play/stop the take (starts on the next beat) · take loop on/off</td></tr>
+        <tr><td>I · O (takes)</td><td>while a take plays (or the sequence tab is open): its loop in · out at the playhead, on whole beats</td></tr>
+        <tr><td>1–8 (takes)</td><td>a pad holding a take launches it on the next beat; again stops it ("put on pad", or learn any MIDI press on a launch button)</td></tr>
         <tr><td>R</td><td>forward / backward</td></tr>
         <tr><td>I · O · Shift+I</td><td>loop in · loop out (here) · loop on/off; click or drag the run strip to jump</td></tr>
         <tr><td>↑ ↓ · drag · wheel</td><td>look up · horizon · look around · zoom</td></tr>

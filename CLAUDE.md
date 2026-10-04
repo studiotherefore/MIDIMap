@@ -28,7 +28,8 @@ Three parts, one codebase:
    with experiment 3), 2 (live, output window, app), 3 (projects), 4
    (MIDI panel, controller profiles), 5 (run strip, loop, place details),
    6 (Street View as a source) and 7 (site: the editor is the front page)
-   are done; 8 (sequences, via experiments first) is next.
+   are done; 8 (sequences) runs as experiments first: **experiment 4,
+   performance recorder** (`experiments/record/`) is built.
 
 ## The author and how to work with them
 
@@ -300,6 +301,40 @@ stay frozen (experiment 3 started as a copy of 2).
 - Verified 2026-10-01 with Playwright: 42 parity checks (keys, mouse, fake
   MiniLab, learn, looks with a faked API, output mirroring, recording), the
   clock and kick timing tests.
+
+### Experiment 4: performance recorder (`experiments/record/`, phase 8)
+
+- A copy of the editor (paths `../lib`, `../../js`; its own mirror channel
+  `midimap-record` and open-project key `midimap.record.current.v1`, so the
+  editor open alongside isn't disturbed) plus `recorder.js`.
+- A **take** = beat-timed changes of the state the output follows (route:
+  source/run/index/image/dir/Street View pano+pov; camera; blend; live; kick;
+  every `look.*`), not the tempo, so playback at another BPM stretches it.
+  `frames[0].d` = whole state, later frames = diffs; photos by id. Recorded
+  every ~33 ms, and at once when the photo/run/panorama changes, snapped to
+  the step grid when locked. Starts on the beat line before Q; ends on a
+  whole beat.
+- **Q** record, **W** play (from the next beat, counted from the beat's exact
+  time), **Shift+W** loop; reverse, ½× · 1× · 2×. Playback applies the full
+  state of the frame in force (`prepare` → `frameAt`) for lanes that are on;
+  the route lane stops live stepping; the kick keeps time during playback.
+  Lanes: mute (M, played live instead), solo (S), clear (×); trim start/end
+  at the playhead; click a lane to jump. Takes: localStorage
+  `midimap.record.takes.v1`, export/import files. Not yet: overdub.
+- Round 2 (the author's feedback, 2026-10-03): **take loops**: I / O (and the
+  transport loop switch) act on the take while one plays or the sequence tab
+  is open (`takeContext()`); `take.loopIn/loopOut` in whole beats, drawn in
+  amber, "clear loop" loops the whole take; playback starts at loop in.
+  **Takes on pads**: "put on pad" stores `{ take: name }` in a slot; 1–8, the
+  pad or a click launch it on the next beat, again stops (`launchTake`).
+  **Any MIDI press**: a launch button per take (`data-learn="take:<name>"`,
+  controls registered per take). Renames update pads and bindings. The pads
+  read a take's length from storage (they're drawn before takes load).
+  Whole-take looping worked in tests before this; the author's report most
+  likely came from the transport loop (run-only until now). 20 more checks.
+- Verified 2026-10-03: 23 checks on real Mapillary with a fake MiniLab;
+  playback photo changes as close to the grid as live playing (33 vs 34 ms,
+  measured the same way).
 
 ### Cloudflare Worker (`src/worker.js`)
 
