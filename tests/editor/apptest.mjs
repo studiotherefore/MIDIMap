@@ -1,0 +1,48 @@
+import { fileURLToPath } from 'node:url';
+// Phase 2 (app): the app opens the editor; displays, output window, Syphon status through window.midimapApp.
+import { createRequire } from 'node:module';
+const require = createRequire(new URL('../../package.json', import.meta.url));
+const { _electron: electron } = require('playwright');
+const APPDIR = fileURLToPath(new URL('../../app', import.meta.url)).replace(/\/$/, '');
+const app = await electron.launch({ executablePath: `${APPDIR}/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron`, args: [APPDIR], cwd: APPDIR });
+const results = [];
+const check = (name, ok, detail = '') => { results.push(ok); console.log(`${ok ? 'ok  ' : 'FAIL'}  ${name}${detail !== '' ? `  (${detail})` : ''}`); };
+const page = await app.firstWindow();
+const errors = [];
+page.on('pageerror', (e) => errors.push(e.message));
+await page.waitForFunction(() => window.blend?.S.runA, null, { timeout: 90000 });
+check('the app opens the editor', page.url().endsWith('/editor/'), page.url());
+check('window.midimapApp is there', await page.evaluate(() => !!window.midimapApp));
+const displays = await page.evaluate(() => window.midimapApp.displays());
+console.log('      displays:', displays.map((d) => `${d.id} ${d.label} ${d.width}×${d.height}${d.current ? ' (editor here)' : ''}`).join(' | '));
+check('displays listed', displays.length >= 1);
+await page.waitForTimeout(4500);
+const sy = await page.evaluate(() => window.midimapApp.syphon());
+check('syphon sending', sy.measured > 20 && sy.size === '1920×1080', JSON.stringify(sy));
+check('syphon panel visible in the output tab', await page.evaluate(() => !document.querySelector('#syphon').hidden));
+// Open the output as a window (not full screen) on the editor's own display, never the other one.
+const here = displays.find((d) => d.current) || displays[0];
+await page.evaluate((id) => window.midimapApp.openOutput({ display: id, fullscreen: false }), here.id);
+await page.waitForTimeout(5000);
+const wins = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((w) => ({ title: w.getTitle(), url: w.webContents.getURL(), visible: w.isVisible(), full: w.isFullScreen(), b: w.getBounds() })));
+const ow = wins.find((w) => w.url.includes('?output&app') && w.visible);
+check('output window opens on the chosen display (as a window)', !!ow && !ow.full, JSON.stringify(ow?.b));
+// Live off reaches the app's output windows too (fade value in the visible output window).
+await page.keyboard.press('l');
+await page.waitForTimeout(1000);
+const outPage = app.windows().find((w) => w.url().includes('?output&app') && w !== page);
+const fades = await Promise.all(app.windows().filter((w) => w.url().includes('?output')).map((w) => w.evaluate(() => window.blend.fade)));
+check('L fades the app\'s output windows (screen + Syphon)', fades.length >= 1 && fades.every((f) => f === 0), fades.join(' '));
+await page.keyboard.press('l');
+await page.evaluate(() => window.midimapApp.setSyphonFps(60));
+await page.waitForTimeout(4500);
+const sy60 = await page.evaluate(() => window.midimapApp.syphon());
+check('syphon 60 fps from the editor', sy60.fps === 60 && sy60.measured > 45, JSON.stringify(sy60));
+await page.evaluate(() => window.midimapApp.setSyphonFps(30));
+await page.evaluate(() => window.midimapApp.closeOutput());
+await page.waitForTimeout(800);
+check('close output', !(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some((w) => w.isVisible() && w.webContents.getURL().includes('?output')))));
+check('editor told the output closed', (await page.textContent('#output-window')) === 'open output');
+check('no page errors', errors.length === 0, errors.join(' | '));
+console.log(results.every(Boolean) ? `\nall ${results.length} app checks passed` : '\nSOME CHECKS FAILED');
+await app.close();

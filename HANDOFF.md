@@ -1,102 +1,113 @@
-# Handoff: 2026-09-30
+# Handoff: 2026-10-03
 
-Snapshot at the end of the session that ran from 2026-09-27 to 2026-09-30 on
-the author's Mac. CLAUDE.md is the stable reference; this file is the "where
-we stopped" note. Replace it at the end of each session.
+Snapshot at the end of the session that ran 2026-09-29 → 2026-10-03 on the
+author's Mac. CLAUDE.md is the stable reference (architecture, lessons);
+EDITOR-PLAN.md is the editor's design and phase list; this file is "where we
+stopped". Replace it at the end of each session.
 
 ## State at handoff
 
 Everything is committed on `main`, pushed to GitHub, and deployed to
-https://midimap.studiotherefore.workers.dev. `npm test` passes.
+https://midimap.studiotherefore.workers.dev. `npm test` passes, and so does
+`node tests/editor/run-all.mjs` (all 9 editor suites).
 
-| Part | State |
-|---|---|
-| Instrument (Google Street View, `/`) | Works. Keyboard stand-in controller, MiniLab 3 support (program-change pads, endless main knob), car imagery first (fixes the 429 black screen). Not touched since 2026-09-29. |
-| Experiment 1, Mapillary explorer | Done, frozen. |
-| Experiment 2, two-layer blend | Done, frozen (1–9, 0 jump to the instrument's presets; pads = blend modes). |
-| **Experiment 3, effects** (`/experiments/fx/`) | **Current front line.** Effects on real pixels (Drift look vocabulary), hold the sun, 8 place slots, tempo clock (internal), presets synced through Cloudflare, recording, projector output window. |
-| MIDIMap app (`app/`) | Works: control window + Syphon "MIDIMap" 1920×1080 at 30/60 fps. Launch by double-clicking `MIDIMap.app` in the project folder. |
-| Preset sync | Live: D1 `midimap-presets`; shared list currently empty (test presets were deleted). The author's Chrome already holds the sync key for the online site. |
+| Part | Where | State |
+|---|---|---|
+| **Editor** (main tool) | `/` → `/editor/` | Phases 1–7 of EDITOR-PLAN.md built: layout C in Drift's look; Mapillary or Google Street View as layer A; effects; tempo with external MIDI clock and a reference kick; live fade; output window; projects; MIDI controller profiles + learn mode; run strip + loop; place details. |
+| **Experiment 4, performance recorder** | `/experiments/record/` | Built and live (phase 8, first approach). The author: "the sequencer works well, trim works". **Next: overdub.** |
+| Street View instrument | `/streetview/` | Unchanged apart from the move; works with the real key. |
+| Experiments 1–3 | `/experiments/mapillary/`, `/blend/`, `/fx/` | Frozen; each links back to the editor. |
+| MIDIMap Mac app | `MIDIMap.app` in the project folder | Opens the editor; Syphon "MIDIMap" 1920×1080 at 30/60 fps; full-screen output on a chosen display; Street View works in it (key allows localhost:8765 since 2026-10-03). |
+| Sync (Cloudflare D1 `midimap-presets`) | `/api/presets`, `/api/projects`, `/api/midi` | Tables `presets`, `projects`, `midi_profiles` (migrations 0001–0003 applied remotely). |
 
 ## What was built this session (in order)
 
-1. Keyboard stand-in controller for the instrument; MIDI-learn fixes for the
-   Arturia MiniLab 3 (program changes, endless encoder). Recorded the MiniLab
-   with a CoreMIDI listener: pads = bank select + program change 0–7, main
-   knob = CC114 relative, knob 1 = CC74, fader 1 = CC82, mod strip = CC1.
-2. Moved hosting from GitHub Pages to Cloudflare (Worker + secrets), with a
-   dedicated "MIDIMap" Google key; fixed the rate-limit black screen.
-3. Experiments 1–3 on Mapillary (see CLAUDE.md), the effects chain, hold the
-   sun, MIDI learn for effects, video recording.
-4. The MIDIMap app with Syphon output; mirroring from the control page to
-   `?output` pages over BroadcastChannel.
-5. Scene presets ("badwater" saved from the author's Chrome), Save preset,
-   then preset sync through Cloudflare D1 with a sync key.
-6. Place slots (8) and the tempo clock with tap tempo, saved in presets.
-7. Fixed: number-key jumps being pulled back to the old place; stale ES
-   modules from the old python server (replaced by `scripts/serve.mjs`).
+1. **External MIDI clock** for experiment 3's tempo (C), then a **reference
+   kick** (K: off / 808 / 909), timed against the picture and recordings.
+2. Mockups → the author chose **layout C**, Drift's look, live-only output,
+   looks as a global library, live off = fade to black (`mockups/editor.html`).
+3. The **editor**, in seven phases, each tried by the author, tested,
+   committed and deployed:
+   1. layout + Mapillary (parity with experiment 3)
+   2. live (L), output window on a display, the app opens the editor
+   3. projects (⌘S, synced, export/import, unsaved draft kept)
+   4. MIDI panel, learn mode (M) on any control, controller profiles
+   5. run strip, loop in/out (I/O), place details (photographer credit)
+   6. Google Street View as layer A (G)
+   7. the editor is the front page; the instrument moved to `/streetview/`
+4. **Experiment 4, performance recorder**: Q record a take, W play from the
+   next beat, loop (whole or in/out), reverse, ½×/2×, BPM stretch, lanes
+   (mute/solo/clear), trim, takes on pads and on any learned MIDI press.
+5. The editor's browser checks moved into the project: `tests/editor/`.
 
-## Decisions the author made
+## Decisions the author made (keep to them)
 
-- Keep MIDIMap **entirely separate from Drift** (hosting, secrets, code), but
-  reuse Drift's *ideas* (the look vocabulary) where they fit.
-- **Keyboard first**; they may switch MIDI controllers, so no MiniLab
-  feel-tuning for now.
-- Work through **small separate experiments** before deciding how recording
-  and editing sequences should work; several recording approaches may each get
-  their own experiment.
-- Syphon (not NDI) for sending video to MadMapper / Syphon Recorder on the same
-  Mac; 1920×1080, 30 fps default, 60 available.
-- Web and app stay in parity (one codebase); the app adds Syphon.
+- **Keyboard first**; MIDI on top via learn; mappings belong to a controller
+  profile, not a project.
+- **Drift's look, not its layout**, and no faint text. On/off = switches,
+  choices = segmented buttons, never sliders for on/off. Sliders are quiet.
+- **Live only** (no cue/go). Live off **fades to black**.
+- **Looks are global** (like reverb presets); projects keep current values.
+- **Sequences: experiments first**, one approach each. The author picked the
+  performance recorder first; it works; **overdub is the next step**.
+- Place **banks**: later.
+- The author commits/deploys only when they say so (they usually do, at the
+  end of each piece); pushing to GitHub likewise.
 
-## Next steps (in the author's order of interest)
+## Next: overdub (start here)
 
-1. **External MIDI clock**: built 2026-09-29 (C key; see CLAUDE.md). A
-   reference kick (K: off/808/909) was added 2026-09-30 for demos. Tested
-   with a fake pulse stream only; still to try with a real drum machine / DAW.
-   Original plan, for reference: (the author said it can be a later
-   stage; the internal clock is built for it). In experiment 3's `onMidi`,
-   handle 0xF8 (24 pulses per beat: derive BPM from pulse spacing, smoothed;
-   every 24th pulse is a beat, so set `clock.origin` on it), 0xFA start (reset
-   to beat 1 and play), 0xFB continue, 0xFC stop. Add a "clock: internal /
-   external" switch and show which is active; keep internal as the fallback
-   when pulses stop. Keyboard: a key to toggle clock source. Test with a fake
-   pulse stream (the smoke test's fake MIDI device pattern works in a page).
-2. **Recording and editing sequences**: the main open question. Run it as a
-   series of experiments (new folders, e.g. `experiments/record-*`), one
-   approach each, starting from experiment 3's code. Candidates discussed:
-   - record what the camera did (run, photo index, yaw/pitch, effect values)
-     as keyframes/lanes, then loop, reverse, time-stretch; stores photo ids
-     only, so imagery is fetched live;
-   - a step sequencer of slots/cuts on the tempo grid;
-   - clip launching on pads (a place is a one-moment clip; a recording is a
-     longer one), looper-style record/overdub, launch on the beat.
-   Ask the author which to try first.
-3. **Slot banks** (more than 8 slots): e.g. bank A/B switching, keys 9/0 are
-   free for it.
-4. **360° vs flat "perspective collisions"**: layer B from a flat-photo run.
-5. **Mapillary image cache** on Cloudflare (licence allows it; the CDN is slow)
-   → instant replays, later offline "performance packs" for gigs.
-6. **Offline render**: redraw a recorded sequence frame by frame at 4K and
-   write ProRes (needs item 2 first; the app could pipe frames to ffmpeg).
-7. Sound (synth/sampler, "the walk plays itself") from the earlier map
-   instrument outline; NDI only if a second computer enters the setup.
+Goal: while a take plays, record over it, replacing only what you touch, so a
+take can be built up in passes (e.g. play the route, then overdub the effects,
+then the camera).
+
+A starting design (check it with the author before building; keep it in
+`experiments/record/`):
+
+- **Shift+Q** (and a button, MIDI-learnable) starts overdub while a take is
+  playing; Shift+Q again (or W) stops it. If nothing plays, it starts the take
+  and overdubs from its first beat.
+- During overdub, playback keeps applying the take. A lane becomes **"punched
+  in"** the moment the performer changes something in it (detect: the live
+  value differs from what playback last applied for that key). From then on,
+  playback stops applying that lane and the performer's values are recorded
+  into it at take-relative beats, round the loop if it loops.
+- Stopping merges: for each punched lane, the take's old changes between
+  punch-in and the stop (per pass, across loop wraps) are replaced by the new
+  ones; untouched lanes are unchanged. Show punched lanes in red on the
+  timeline while recording.
+- **Undo** the last overdub (one level is enough to start): keep the take as
+  it was before, e.g. ⌘Z or an "undo overdub" button.
+- Test it the way `tests/editor/take.mjs` / `take2.mjs` do: record a route,
+  overdub a knob (fake MiniLab) during a loop, then check that the route is
+  unchanged, the knob lane has the new values, and undo restores it.
+
+After overdub, ask the author whether the recorder moves into the editor's
+sequence tab, or whether to try a step sequencer / clip launcher experiment
+first (takes on pads already make a simple clip launcher).
 
 ## How to pick up
 
-1. Read CLAUDE.md fully, then this file.
-2. Start the local server (`npm start`, background) and run
-   `CHROMIUM_PATH=… npm test`.
-3. Open experiment 3 in a *visible* browser tab to confirm it plays
-   (Karl-Marx-Allee loads by default; press Space).
-4. Ask the author which next step they want; don't assume.
+1. Read CLAUDE.md fully, then this file (and EDITOR-PLAN.md when touching the
+   editor).
+2. Start the local server in the background (`npm start`) and run
+   `CHROMIUM_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" npm test`.
+3. Open `/experiments/record/` (and `/editor/`) to check they play; the
+   Browser pane is often hidden, so use headless Playwright with the
+   installed Chrome (see `tests/editor/`) and show the author screenshots.
+4. Then start on overdub (above), after confirming the design with the author.
 
 ## Known gaps and cautions
 
-- The experiments have no automated tests; verify in a visible browser.
-- MIDI defaults for effects knobs 5–8 and faders 2–4 are guessed Arturia
-  numbers, unverified on the hardware.
-- Mapillary is slow: wait for "buffered N frames ahead" before judging playback.
-- The app's Syphon source is listed under the app name "Electron".
-- `MIDIMap.app` (launcher) points at the project folder by absolute path; if
-  the folder moves, rebuild it (see app/README.md, "Rebuilding the launcher").
+- **Untried with real hardware:** the external MIDI clock (only fake pulses),
+  full screen on a second display (the author's Roland video output shows up
+  as a mirror, not a separate display), the kick by ear (timing was measured
+  with the sound muted).
+- The app's Syphon output only sends frames when the picture changes (a still
+  Street View sends none; Syphon keeps the last frame).
+- Street View can't be recorded in the browser (Google's picture can't be
+  captured); record its Syphon output instead. Each panorama load is billed.
+- Experiment 4 is a copy of the editor: changes to the editor don't reach it
+  (and the other way round) until the recorder moves into the editor.
+- A running app keeps old code: ⌘R (or restart) after changes.
+- Deploys upload every untracked folder that isn't in `.assetsignore` (the
+  author's screenshots went public once). Check `git status` first.

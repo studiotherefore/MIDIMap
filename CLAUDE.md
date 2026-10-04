@@ -17,8 +17,9 @@ Three parts, one codebase:
    MIDI learn, keyboard stand-in controller, Arturia MiniLab 3 support. Web only.
 2. **Experiments** (`experiments/`): a series of small, separate studies on
    Mapillary imagery (open, CC-BY-SA, pixels readable). The author is using
-   them to decide how recording and editing sequences should work. Current
-   front line: **experiment 3, effects** (`experiments/fx/`).
+   them to decide how recording and editing sequences should work. 1–3 led to
+   the editor (frozen); current front line: **experiment 4, performance
+   recorder** (`experiments/record/`), next step **overdub**.
 3. **The MIDIMap app** (`app/`): a small Electron app that opens the editor
    (since phase 2; experiment 3 before) and publishes a Syphon source
    "MIDIMap" at 1920×1080 (30 or 60 fps).
@@ -72,8 +73,12 @@ GitHub Pages is retired (2026-09-28); GitHub is only the backup.
   Mac: `CHROMIUM_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" npm test`.
   Covers the instrument (with a Google Maps mock and a pluggable fake MIDI
   device), the Worker, the key file and the presets API (with an in-memory
-  D1). **The experiments have no automated tests**: verify them in a
-  *visible* browser (see lessons).
+  D1). **The editor and experiment 4** have browser checks in `tests/editor/`
+  (~230; real pages, real Mapillary, simulated MIDI, faked sync, Google
+  mocked): `npm start`, then `node tests/editor/run-all.mjs` (~15 min; see
+  its README for the by-hand ones: real Google, the Mac app, headed kick
+  timing). Write a script like these for every new feature. Experiments 1–3
+  have no automated tests: verify them in a *visible* browser (see lessons).
 - **Deploy**: `npm run deploy` (wrangler, installed in this folder) publishes the
   working folder to Cloudflare. Run the tests and commit first. `.assetsignore`
   keeps everything but the site files off the web; after changing it, check
@@ -120,7 +125,7 @@ stay frozen (experiment 3 started as a copy of 2).
   (WebGL2 `PanoBlend`) draws equirectangular panoramas itself, each turned by
   its `computed_compass_angle` (image centre = that direction); it can render
   to an off-screen target. Keys 1–9, 0 jump to the instrument's presets.
-- **3. Effects** (`experiments/fx/`), the current front line:
+- **3. Effects** (`experiments/fx/`), frozen (the editor grew from it):
   - Everything from 2, plus `fx.js`: scene → echo/feedback (ping-pong,
     zoom/rotate, blend or trails) → bloom (¼ size) → final grade. Parameter
     names and units follow **Drift's look destinations** (brightness, contrast,
@@ -348,7 +353,9 @@ http://localhost:8000 and :8765.
 ### The app (`app/`, see app/README.md)
 
 Electron 44 + node-syphon 1.5, own `node_modules` (not the web project's).
-Control window = experiment 3. An off-screen window
+Control window = the editor (`/editor/`, since phase 2), with `preload.cjs`
+exposing `window.midimapApp` (displays, a real full-screen output window on a
+chosen display, Syphon fps/status). An off-screen window
 (`offscreen.useSharedTexture`, sized 1920×1080 in points, since off-screen
 renders 1 px per point) loads `?output`; each `paint` texture's
 `textureInfo.handle.ioSurface` goes to `SyphonMetalServer.publishSurfaceHandle`.
@@ -356,8 +363,9 @@ Output menu: 30/60 fps (`MIDIMAP_FPS=60` at launch). MIDI permissions are
 granted without prompts. Verified with a node-syphon client: 1920×1080 at 30.3
 and 60.2 fps; output state matched the control window.
 
-**Web/app parity is automatic**: the app loads the same experiment files from
-the project folder, so every experiment feature lands in both. App-only:
+**Web/app parity is automatic**: the app loads the same editor files from
+the project folder, so every editor feature lands in both. Restart (or ⌘R)
+the app after changes: a running app keeps the old code. App-only:
 Syphon, fixed 1920×1080 output, no MIDI prompts, no background freezing. The
 instrument (Google Street View) is web-only.
 
@@ -417,12 +425,30 @@ Browsers, testing and tools:
   change that. To read another tab's experiment state, listen on the
   BroadcastChannel from a tab on the same origin.
 - Chrome asks MIDI permission even without sysex; that DevTools notice is harmless.
+- **A deploy uploads every untracked folder** not in `.assetsignore` (the
+  author's `screenshots/` went public once, 2026-10-03, and was taken down).
+  Before deploying, look at `git status` for new folders.
+- The project path has spaces ("Claude AI"): in Node use `fileURLToPath`, not
+  `new URL(…).pathname` (it gives `%20`).
+- Playwright + the Mac app: pick the editor window by URL (`/editor/`); the
+  first window can be the off-screen Syphon output. Only one app instance runs
+  at a time (quit the author's first, with their OK).
+- The Google key is restricted by address: localhost:8000, localhost:8765 (the
+  app) and the live site. A new address needs adding in Google Cloud →
+  Credentials (the author does it; changes take ~5 minutes).
+- The built-in Browser pane is often hidden (0 fps); headless Playwright with
+  the installed Chrome is the reliable way to verify, plus a visible
+  (`headless: false`) run for real display/audio timing.
+- Write the commit-and-deploy commands so a failing test stops them
+  (`npm test … | grep -q "all checks passed" && git commit … && npm run deploy`);
+  once, a chain committed despite a failed check.
 
-## Next steps (the author's direction as of 2026-09-30)
+## Next steps (the author's direction as of 2026-10-03)
 
-See `HANDOFF.md` for detail. In short: external MIDI clock for the tempo
-(built 2026-09-29; still to try with a real device); then **recording and editing sequences** as a series of experiments (one
-approach each); slot banks; 360° vs flat "perspective collisions"; a Mapillary
-image cache on Cloudflare (the licence allows it) leading to offline
-performance packs; an offline 4K/ProRes render once sequences exist; sound
-(synth/sampler) later.
+See `HANDOFF.md`. In short: **overdub** in experiment 4 (record over a take
+while it plays, replacing only the lanes you touch); then decide with the
+author whether the recorder moves into the editor or another sequencing
+experiment comes first (step sequencer, clip launcher). Later: try the
+external MIDI clock with a real device; place banks; 360° vs flat
+"perspective collisions"; a Mapillary image cache on Cloudflare leading to
+offline performance packs; an offline 4K/ProRes render from takes; sound.

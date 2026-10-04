@@ -2,8 +2,13 @@
 
 Drafted 2026-10-01 from the mockup the author approved (`mockups/editor.html`,
 layout C, served at http://localhost:8000/mockups/editor.html). This is the
-plan for turning experiment 3 into the main MIDIMap tool. Nothing here is built
-yet.
+plan for turning experiment 3 into the main MIDIMap tool.
+
+**Status, 2026-10-03:** phases 1–7 are built, deployed and committed (each
+phase: the author tried it, tests passed, then commit + deploy). Phase 8 is
+under way as experiments: experiment 4, the performance recorder, is built and
+live; overdub is next. Details of what was built, and the lessons, are in
+CLAUDE.md; where to pick up is in HANDOFF.md.
 
 ## What the author decided
 
@@ -121,25 +126,37 @@ experiment 3's code (copied, so experiment 3 stays frozen):
 
 Each phase ends with the author trying it, tests passing, and a commit.
 
-1. **Shell + Mapillary (parity with experiment 3)**: the layout, top bar tempo,
+1. ✅ **Shell + Mapillary (parity with experiment 3)**: the layout, top bar tempo,
    inspector tabs, left column, pads (collapsible, **P**), switches, keyboard
    map. Everything experiment 3 does works here.
-2. **Output and live**: output window on a chosen display, **L**, record from
+2. ✅ **Output and live**: output window on a chosen display, **L**, record from
    the output; in the app, the full-screen window + Syphon.
-3. **Projects**: save/load/sync/export, ⌘S, saved mark, preset migration.
-4. **MIDI panel**: devices, learn mode on any control (**M**), controller
+3. ✅ **Projects**: save/load/sync/export, ⌘S, saved mark, preset migration.
+4. ✅ **MIDI panel**: devices, learn mode on any control (**M**), controller
    profiles.
-5. **Run strip and place details** under the monitor; loop in/out.
-6. **Street View source.**
-7. **Site**: the editor becomes the main page (`/`); the Street View
+5. ✅ **Run strip and place details** under the monitor; loop in/out.
+6. ✅ **Street View source.**
+7. ✅ **Site**: the editor becomes the main page (`/`); the Street View
    instrument moves to `/streetview/`; experiments 1–3 stay, linked from a
    menu. Old addresses keep working.
-8. **Sequences**: experiments first (`experiments/record-*`), then the chosen
-   approach goes into the sequence tab.
+8. ⏳ **Sequences**: experiments first, then the chosen approach goes into the
+   sequence tab.
+   - ✅ Experiment 4, **performance recorder** (`experiments/record/`, chosen
+     by the author over a step sequencer and a clip launcher): takes as
+     beat-timed lanes; play on the beat, loop (whole or in/out), reverse,
+     ½×/2×, stretch with the BPM; mute/solo/clear/trim; takes on pads and on
+     any learned MIDI press. The author: "the sequencer works well, trim
+     works".
+   - ⏭ Next: **overdub** (record over a take while it plays, replacing only
+     the lanes you touch). Then decide: move the recorder into the editor,
+     or try a step sequencer / clip launcher experiment first (takes on pads
+     already give a simple clip launcher).
 
-Tests: unlike the experiments, the editor gets automated tests (Playwright,
-with Mapillary and Google mocked), plus the timing checks used for the clock
-and kick (fake MIDI clock, audio probe, recorded-file analysis).
+Tests: unlike the experiments, the editor gets automated tests: they live in
+`tests/editor/` (Playwright against the real pages; real Mapillary, a
+simulated MIDI controller, faked sync, Google mocked), plus the timing checks
+(fake MIDI clock, audio probe, recorded-file analysis). `node
+tests/editor/run-all.mjs` with the local server running.
 
 ## Keys
 

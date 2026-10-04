@@ -3,24 +3,30 @@
 Playing street-level imagery like an instrument, for live performance. A
 standalone project that may later become a module in Drift.
 
-Three parts, one codebase:
+Four parts, one codebase:
 
-- **The instrument**: Google Street View played with the keyboard or a MIDI
-  controller. Number keys move between places, the camera drifts or travels at
-  a speed you set, a mod wheel tilts it, and every control can be re-assigned
-  with **MIDI learn**.
-- **Experiments** on Mapillary's open street imagery: blending two runs of the
-  same street, effects on the real pixels, holding the sun in frame, place
-  slots, a tempo clock, and presets shared between browsers.
-- **The MIDIMap app**: a Mac app that plays experiment 3 and sends the picture
-  to MadMapper, Syphon Recorder, OBS and others over **Syphon**.
+- **The editor** (the main page): plays Mapillary's open street imagery (or
+  Google Street View) like a film locked to a tempo, with two blended layers,
+  effects on the real pixels, places on pads, projects, MIDI controller
+  profiles, a live switch and a clean output window for a projector. Its
+  design and build plan are in `EDITOR-PLAN.md`.
+- **The instrument** (`/streetview/`): Google Street View played with the
+  keyboard or a MIDI controller, with **MIDI learn**. The first MIDIMap.
+- **Experiments**: small separate studies. 1–3 led to the editor; 4, the
+  **performance recorder**, records what you play as takes and plays them
+  back on the beat (the first approach to sequences).
+- **The MIDIMap app**: a Mac app that opens the editor and sends the picture
+  to MadMapper, Syphon Recorder, OBS and others over **Syphon**, and can put a
+  full-screen output on a chosen display.
 
 ## Run it
 
-**Online:** <https://midimap.studiotherefore.workers.dev> in Chrome or Edge
-(Safari has no Web MIDI). Experiments: `/experiments/mapillary/`,
-`/experiments/blend/`, `/experiments/fx/`. Hosted on Cloudflare; keys come from
-Worker secrets (see `src/worker.js`). Deploy with `npm run deploy`.
+**Online:** <https://midimap.studiotherefore.workers.dev> (opens the editor) in
+Chrome or Edge (Safari has no Web MIDI). The instrument is at `/streetview/`;
+experiments at `/experiments/mapillary/`, `/experiments/blend/`,
+`/experiments/fx/`, `/experiments/record/`. The editor's wordmark (midimap∴)
+links them all. Hosted on Cloudflare; keys come from Worker secrets (see
+`src/worker.js`). Deploy with `npm run deploy`.
 
 **Locally:**
 
@@ -28,7 +34,8 @@ Worker secrets (see `src/worker.js`). Deploy with `npm run deploy`.
    git-ignored, so keys never go into the repo):
    - `mapsApiKey`: a **Google Maps JavaScript API** key (Google Cloud Console →
      APIs & Services → enable *Maps JavaScript API* → Credentials → Create API
-     key), restricted to `http://localhost:8000/*` and the live address.
+     key), restricted to `http://localhost:8000/*`, `http://localhost:8765/*`
+     (the app) and the live address.
    - `mapillaryToken`: a Mapillary client token (mapillary.com/dashboard/developers).
    - `presetsKey`: the sync key for shared presets (same value as the Worker's
      `PRESETS_KEY` secret).
@@ -39,6 +46,20 @@ Worker secrets (see `src/worker.js`). Deploy with `npm run deploy`.
 **The app (Syphon):** `cd app && npm install` once, then double-click
 `MIDIMap.app` in the project folder (or `npm start` in `app/`). See
 [app/README.md](app/README.md).
+
+## The editor
+
+Layout: map, layer A (Mapillary or Street View), layer B and blend on the
+left; the output monitor in the middle with the transport and the run strip
+underneath; effects, camera, audio, output and the full key list on the
+right; places as pads along the bottom; tempo, projects, MIDI, record and
+live in the top bar. Every feature works from the keyboard (the **keys** tab
+lists them); MIDI is an extra on top (**M** = learn mode on any control).
+
+Projects (⌘S) keep the whole setup and sync through Cloudflare; looks are a
+global library; MIDI mappings belong to a controller profile. **L** fades the
+output to black; the output window and the app's Syphon output follow the
+editor; **V** records what the audience sees.
 
 ## The instrument: controls (defaults)
 
@@ -126,16 +147,21 @@ key. On this Mac it comes from `config.local.json`; in another browser, click
 ## Structure
 
 ```
-index.html, css/, js/        the instrument (Google Street View)
-experiments/lib/             shared Mapillary and preset-sync helpers
+index.html                   forwards to editor/
+editor/                      the editor (app.js, fx.js, kick.js, project.js, midi.js, streetview.js, renderer.js)
+streetview/index.html        the instrument's page (its code: css/, js/)
+experiments/lib/             shared Mapillary and sync helpers
 experiments/mapillary/       1. explorer
 experiments/blend/           2. two-layer blend (renderer.js draws the panoramas)
 experiments/fx/              3. effects, slots, tempo, presets (fx.js = effects chain)
-src/worker.js                Cloudflare Worker: site files, key file, /api/presets
-migrations/                  D1 database schema for presets
+experiments/record/          4. performance recorder (a copy of the editor + recorder.js)
+src/worker.js                Cloudflare Worker: site files, key file, /api/presets, /api/projects, /api/midi
+migrations/                  D1 database schema (presets, projects, midi_profiles)
 app/                         the MIDIMap Mac app (Electron + Syphon)
 scripts/serve.mjs            local server (npm start; also used by the app)
-tests/                       smoke tests (npm test)
+tests/smoke.mjs              smoke tests (npm test)
+tests/editor/                browser checks for the editor and experiment 4 (see its README)
+mockups/                     the editor design mockup (not published)
 ```
 
 The instrument's engine only knows about *state* (speed, pitch target, mode) and
@@ -147,8 +173,12 @@ the engine directly.
 `npm install` once, then `npm test`: a headless-browser smoke test of the
 instrument (simulated Google Maps and a pluggable simulated MIDI device), the
 Worker and the presets API. To use an installed Chrome instead of Playwright's
-own browser, set `CHROMIUM_PATH` to its executable. The experiments are checked
-by hand in a visible browser.
+own browser, set `CHROMIUM_PATH` to its executable.
+
+The editor and experiment 4 have their own browser checks in `tests/editor/`
+(about 230, against the real pages with real Mapillary photos, a simulated
+MIDI controller and a faked sync service): `npm start`, then
+`node tests/editor/run-all.mjs`. Experiments 1–3 are checked by hand.
 
 ## Notes and limitations
 

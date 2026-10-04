@@ -3,3 +3,6 @@ node_modules/
 *.local.json
 .wrangler/
 MIDIMap.app/
+tests/editor/output/
+screenshots/
+MIDImap screenshots/
