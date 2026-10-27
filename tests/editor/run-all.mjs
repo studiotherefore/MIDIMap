@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 // kick-editor.mjs (HEADED=1 for real-hardware timing), clock-exp3/kick-exp3 (experiment 3).
 import { execFileSync } from 'node:child_process';
 
-const SUITES = ['parity', 'phase2', 'projects', 'phase4', 'phase5', 'phase6', 'clock-editor', 'take', 'take2'];
+const SUITES = ['parity', 'phase2', 'projects', 'phase4', 'phase5', 'phase6', 'clock-editor', 'take', 'take2', 'overdub', 'seqlayout', 'video'];
 let failed = 0;
 for (const name of SUITES) {
   let out = '';

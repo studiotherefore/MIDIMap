@@ -29,12 +29,10 @@ const S = (k) => ev((k) => window.blend.S[k], k);
 const key = (k) => page.keyboard.press(k);
 const wait = (ms) => page.waitForTimeout(ms);
 const midi = (...b) => ev((b) => window.__midi(...b), b);
+const openMenu = async () => { if (await page.isHidden('#take-menu')) await page.click('#take-menu-btn'); }; // take ▾ holds editing and files
 const results = [];
 const check = (name, ok, detail = '') => { results.push(ok); console.log(`${ok ? 'ok  ' : 'FAIL'}  ${name}${detail !== '' ? `  (${detail})` : ''}`); };
 await page.click('#view', { position: { x: 300, y: 200 } });
-await page.click('#below-tabs [data-below="seq"]');
-await page.click('#view', { position: { x: 300, y: 200 } });
-
 // A short performance at 120 BPM, locked, 2 steps a beat.
 await key('b'); await key('Period');
 const startIndex = await S('index');
@@ -115,10 +113,12 @@ await ev(() => [...document.querySelectorAll('#lanes .lane')].find((l) => l.text
 
 // Clear a lane, trim.
 page.once('dialog', (d) => d.accept());
-await ev(() => [...document.querySelectorAll('#lanes .lane')].find((l) => l.textContent.includes('bloom')).querySelector('.c').click());
+await openMenu();
+await page.click('#take-clear-lanes [data-lane="fx.bloom"]');
 await wait(200);
 check('clear: the bloom lane is gone', !(await ev(() => window.blend.take.prep.lanes.has('fx.bloom'))));
 await ev(() => { window.blend.take.beat = 4; });
+await openMenu();
 await page.click('#take-trim-out');
 check('trim the end at beat 4', (await ev(() => window.blend.take.prep.take.beats)) === 4);
 
@@ -126,7 +126,7 @@ check('trim the end at beat 4', (await ev(() => window.blend.take.prep.take.beat
 await page.reload();
 await page.waitForFunction(() => window.blend?.take, null, { timeout: 30000 });
 check('after a reload the take is still there', (await ev(() => window.blend.take.prep?.take.beats)) === 4);
-await page.click('#below-tabs [data-below="seq"]');
+await openMenu();
 const dl = page.waitForEvent('download');
 await page.click('#take-export');
 const file = `${OUT}take.midimap-take.json`;

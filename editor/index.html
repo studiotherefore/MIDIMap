@@ -236,9 +236,13 @@
         <p class="note">The picture alone, following this editor. <b>F</b> full screen · Esc leaves it.</p>
       </div>
       <div class="frame">
-        <h3>record <span><kbd>V</kbd></span></h3>
+        <h3>video <span><kbd>V</kbd></span></h3>
         <div class="buttons"><button id="record-2" class="rec">record</button></div>
-        <p class="note">Records what the audience sees (the picture, the live fade, the kick) to a video file in your Downloads folder.</p>
+        <div class="segrow"><span>frame size</span><span class="seg" id="video-size"><button data-size="720">720p</button><button data-size="1080">1080p</button></span></div>
+        <div class="segrow"><span>frame rate</span><span class="seg" id="video-fps"><button data-fps="30">30 fps</button><button data-fps="60">60 fps</button></span></div>
+        <div class="segrow"><span>quality</span><span class="seg" id="video-quality"><button data-quality="standard">standard</button><button data-quality="high">high</button></span></div>
+        <p class="note" id="video-desc"></p>
+        <p class="note">Records what the audience sees (the picture, the live fade, the kick) to your Downloads folder, as an ordinary MP4 that QuickTime, Premiere, Resolve and iMovie open, trim and export as it is.</p>
       </div>
       <div class="frame" id="syphon" hidden>
         <h3>syphon</h3>

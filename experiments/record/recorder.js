@@ -57,7 +57,12 @@ export class Recorder {
       let b = this.beat;
       if (step && Object.keys(d).some((k) => laneOf(k) === 'route')) {
         const snapped = Math.round(b / step) * step;
-        if (Math.abs(snapped - b) < 0.15) b = snapped;
+        if (Math.abs(snapped - b) < 0.15) {
+          b = snapped;
+          // Changes caught in the moment between the step and the photo arriving
+          // move back onto the step too, so the photo change isn't pushed after them.
+          for (let i = this.take.frames.length - 1; i > 0 && this.take.frames[i].b > b; i--) this.take.frames[i].b = b;
+        }
       }
       const lastB = this.take.frames.at(-1).b;
       this.take.frames.push({ b: +Math.max(b, lastB).toFixed(4), d });
@@ -113,4 +118,43 @@ export function trim(take, from, to) {
   for (const f of take.frames) if (f.b > from && f.b < to) frames.push({ b: +(f.b - from).toFixed(4), d: f.d });
   take.frames = frames;
   take.beats = Math.max(1, Math.round(to - from));
+}
+
+// Overdub: lay what was played over a take, lane by lane.
+//   segs = [{ lane, a, b, events: [{ b, k, v }] }], in the order they were
+//   played (a new one each time round a loop). In a segment's lane the take's
+//   changes in [a, b) are replaced by the segment's (a later pass wins); where
+//   a covered stretch ends, the lane goes back to what the take had there.
+//   Lanes without segments are left exactly as they were. Returns a new take.
+export function overdub(take, segs) {
+  const base = { ...take.frames[0].d };
+  let events = [];
+  for (const f of take.frames.slice(1)) for (const [k, v] of Object.entries(f.d)) events.push({ b: f.b, k, v });
+  // The lane's values at beat b, as the take stands so far.
+  const laneAt = (lane, b) => {
+    const st = {};
+    for (const [k, v] of Object.entries(base)) if (laneOf(k) === lane) st[k] = v;
+    for (const e of events) if (e.b <= b && laneOf(e.k) === lane) st[e.k] = e.v;
+    return st;
+  };
+  for (const s of segs) {
+    if (!(s.b > s.a)) continue;
+    const back = s.b < take.beats ? laneAt(s.lane, s.b) : {}; // where this pass ends, the lane goes back to this
+    events = events.filter((e) => !(laneOf(e.k) === s.lane && e.b >= s.a && e.b < s.b));
+    events = events.filter((e) => !(laneOf(e.k) === s.lane && e.b === s.b && e.back)); // an earlier pass's way back, now replaced
+    events.push(...s.events.filter((e) => e.b >= s.a && e.b < s.b));
+    for (const [k, v] of Object.entries(back)) events.push({ b: s.b, k, v, back: true });
+    events.sort((x, y) => x.b - y.b || (y.back ? 1 : 0) - (x.back ? 1 : 0)); // the way back first, then the take's own changes at that beat
+  }
+  const cur = { ...base };
+  const frames = [{ b: 0, d: base }];
+  for (const e of events) {
+    const b = +Math.max(0, e.b).toFixed(4);
+    if (b === 0) { base[e.k] = e.v; cur[e.k] = e.v; continue; }
+    if (cur[e.k] === e.v) continue;
+    cur[e.k] = e.v;
+    const last = frames.at(-1);
+    if (frames.length > 1 && last.b === b) last.d[e.k] = e.v; else frames.push({ b, d: { [e.k]: e.v } });
+  }
+  return { ...take, frames };
 }

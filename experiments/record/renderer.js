@@ -103,8 +103,7 @@ export class PanoBlend {
   // Match the canvas's pixel size to its size on screen; returns [width, height].
   fitCanvas() {
     const c = this.canvas;
-    const w = Math.round(c.clientWidth * devicePixelRatio);
-    const h = Math.round(c.clientHeight * devicePixelRatio);
+    const [w, h] = this.fixedSize || [Math.round(c.clientWidth * devicePixelRatio), Math.round(c.clientHeight * devicePixelRatio)]; // fixedSize: while recording a video
     if (c.width !== w || c.height !== h) {
       c.width = w;
       c.height = h;

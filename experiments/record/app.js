@@ -14,7 +14,8 @@ import { Kick, KICKS } from './kick.js';
 import { ProjectStore, PROJECT_VERSION, migrate, fingerprint, download } from './project.js';
 import { Profiles, parse, srcOf, describe, shortName, MINILAB, PROFILE_VERSION } from './midi.js';
 import { StreetViewLayer, SV_EFFECTS } from './streetview.js';
-import { Recorder, prepare, frameAt, laneOf, clearLane, trim, LANE_LABEL, LANE_TITLE } from './recorder.js';
+import { VideoRecorder, SIZES, loadVideoSettings, saveVideoSettings, describeVideo } from '../lib/video-recorder.js';
+import { Recorder, prepare, frameAt, laneOf, clearLane, trim, overdub, LANE_LABEL, LANE_TITLE } from './recorder.js';
 import { DEFAULT_LOCATIONS } from '../../js/locations.js';
 
 const $ = (s) => document.querySelector(s);
@@ -516,6 +517,7 @@ function tick(now) {
     fx.resize(w, h);
     renderer.render({ yaw, pitch, fov: S.fov }, { mode: S.mode, mix: S.mix }, S.smooth * stepDuration(), fx.sceneTarget);
     fx.render(look, now, OUTPUT || recorder ? fade : 1);
+    if (recorder) recorder.frame($('#view'));
   }
   if (!OUTPUT) takeTick(dt * 1000, now);
   hud(now);
@@ -920,6 +922,7 @@ function sync() {
     setSw('#loop', S.loop);
     $('#loop-in').classList.toggle('on', S.loopIn !== null);
     $('#loop-out').classList.toggle('on', S.loopOut !== null);
+    markLoopButtons();
   }
 }
 
@@ -983,7 +986,6 @@ function tabs(bar, attr) {
   }
 }
 tabs('#insp-tabs', 'tab');
-tabs('#below-tabs', 'below');
 
 // The places row folds away (P).
 const togglePads = () => $('#pads').classList.toggle('closed');
@@ -1002,6 +1004,8 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (e.target.closest('input, select, [contenteditable]')) return;
+  // ⌘Z: undo (again: redo) the last overdub. In a text field it stays the field's own undo.
+  if ((e.metaKey || e.ctrlKey) && e.code === 'KeyZ' && !OUTPUT) { e.preventDefault(); undoOverdub(); return; }
   if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
   else if (e.code === 'ArrowRight') step(1);
   else if (e.code === 'ArrowLeft') step(-1);
@@ -1015,8 +1019,9 @@ window.addEventListener('keydown', (e) => {
   else if (e.code === 'KeyS') toggleSun();
   else if (e.code === 'KeyG' && !OUTPUT) setSource(S.source === 'sv' ? 'mapillary' : 'sv');
   else if (e.code === 'KeyV') toggleRecord();
-  else if (e.code === 'Escape') { cancelLearn(); $('#midi-panel').hidden = true; $('#site-menu').hidden = true; closeProjectMenu(); }
+  else if (e.code === 'Escape') { cancelLearn(); $('#midi-panel').hidden = true; $('#site-menu').hidden = true; closeProjectMenu(); $('#take-menu').hidden = true; $('#take-menu-btn').classList.remove('on'); }
   else if (e.code === 'KeyM' && !OUTPUT) setLearnMode(!learnMode);
+  else if (e.code === 'KeyQ' && e.shiftKey && !OUTPUT) toggleOverdub();
   else if (e.code === 'KeyQ' && !OUTPUT) toggleTakeRecord();
   else if (e.code === 'KeyW' && e.shiftKey && !OUTPUT) { take.loop = !take.loop; renderTake(); }
   else if (e.code === 'KeyW' && !OUTPUT) toggleTakePlay();
@@ -1631,42 +1636,69 @@ onSwitch('#sun', toggleSun);
 // ---- recording ---------------------------------------------------------------------------
 // The canvas alone, straight to a video file: no panel, no cursor, no screen-capture UI.
 
-let recorder = null;
+let recorder = null; // a VideoRecorder while recording
 let recordStart = 0;
+let videoSaving = false;
+const video = loadVideoSettings();
 
-function toggleRecord() {
+function showVideoSettings() {
+  setSeg('#video-size', 'size', video.size);
+  setSeg('#video-fps', 'fps', video.fps);
+  setSeg('#video-quality', 'quality', video.quality);
+  $('#video-desc').textContent = describeVideo(video);
+  for (const b of document.querySelectorAll('#video-size button, #video-fps button, #video-quality button')) b.disabled = !!recorder;
+}
+for (const [sel, attr] of [['#video-size', 'size'], ['#video-fps', 'fps'], ['#video-quality', 'quality']]) {
+  for (const b of $(sel).querySelectorAll(`[data-${attr}]`)) {
+    b.addEventListener('click', () => {
+      video[attr] = attr === 'quality' ? b.dataset[attr] : +b.dataset[attr];
+      saveVideoSettings(video);
+      showVideoSettings();
+      b.blur();
+    });
+  }
+}
+showVideoSettings();
+
+function recordButtons(on) {
+  for (const b of [$('#record'), $('#record-2')]) b.classList.toggle('on', on);
+  $('#record').innerHTML = on ? 'stop <kbd>V</kbd>' : 'video <kbd>V</kbd>';
+  $('#record-2').textContent = on ? 'stop video' : 'record video';
+}
+
+async function toggleRecord() {
+  if (videoSaving) return;
   if (S.source === 'sv' && !recorder) return status("Street View can't be recorded here (Google's picture can't be captured by the page). In the MIDIMap app, record its Syphon output with Syphon Recorder or OBS.", true);
   if (recorder) {
-    recorder.stop();
-    return;
-  }
-  // The picture plus the kick (a silent track while the kick is off).
-  const types = ['video/mp4;codecs=avc1.640033,mp4a.40.2', 'video/mp4;codecs=avc1.640033,opus', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
-  const mimeType = types.find((t) => MediaRecorder.isTypeSupported(t));
-  const stream = $('#view').captureStream(60);
-  for (const track of kick.start().stream.getAudioTracks()) stream.addTrack(track);
-  const chunks = [];
-  recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 24e6 });
-  recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-  recorder.onstop = () => {
-    const ext = mimeType.startsWith('video/mp4') ? 'mp4' : 'webm';
-    const blob = new Blob(chunks, { type: mimeType });
+    const rec = recorder;
+    recorder = null;
+    renderer.fixedSize = null;
+    $('#view').classList.remove('recording');
+    videoSaving = true;
+    recordButtons(false);
+    $('#hud-rec').textContent = '';
+    status('Preparing the video…');
+    const { blob, fixed, error } = await rec.stop();
+    videoSaving = false;
+    showVideoSettings();
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `midimap-fx-${stamp}.${ext}` });
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `midimap-${stamp}.mp4` });
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 60000);
-    recorder = null;
-    for (const b of [$('#record'), $('#record-2')]) b.classList.remove('on');
-    $('#record').innerHTML = 'rec <kbd>V</kbd>';
-    $('#record-2').textContent = 'record';
-    $('#hud-rec').textContent = '';
-    status(`Saved ${Math.round(blob.size / 1e6)} MB video to your Downloads folder.`);
-  };
-  recorder.start(1000);
+    if (fixed) status(`Saved the video (${Math.round(blob.size / 1e6)} MB, ${SIZES[rec.s.size].join('×')}, ${rec.s.fps} fps) to your Downloads folder.`);
+    else status(`Saved a ${Math.round(blob.size / 1e6)} MB video, but it couldn't be made editable (${error}): QuickTime will play it but not trim it.`, true);
+    return;
+  }
+  // The picture is drawn at the video's own size while recording (the monitor
+  // shows it scaled), so nothing is enlarged or squeezed.
+  const rec = new VideoRecorder(video);
+  if (!rec.start(kick.start().stream.getAudioTracks())) return status("This browser can't record MP4 video: use Chrome or Edge.", true);
+  recorder = rec;
+  renderer.fixedSize = SIZES[video.size];
+  $('#view').classList.add('recording');
   recordStart = performance.now();
-  for (const b of [$('#record'), $('#record-2')]) b.classList.add('on');
-  $('#record').innerHTML = 'stop <kbd>V</kbd>';
-  $('#record-2').textContent = 'stop recording';
+  recordButtons(true);
+  showVideoSettings();
 }
 $('#record').addEventListener('click', toggleRecord);
 $('#record-2').addEventListener('click', toggleRecord);
@@ -2367,7 +2399,7 @@ if (!OUTPUT) {
   setInterval(renderMidiPanel, 150); // activity lights and the last message
   addEventListener('resize', placeBadges);
   document.addEventListener('scroll', placeBadges, true);
-  for (const t of document.querySelectorAll('#insp-tabs [data-tab], #below-tabs [data-below]')) t.addEventListener('click', () => setTimeout(placeBadges, 0));
+  for (const t of document.querySelectorAll('#insp-tabs [data-tab]')) t.addEventListener('click', () => setTimeout(placeBadges, 0));
   profiles.syncNow().then(() => renderLearn()).catch(() => {});
   setInterval(() => profiles.syncNow().catch(() => {}), 30000);
   renderLearn();
@@ -2401,6 +2433,7 @@ function renderLoop() {
   setSw('#loop', S.loop);
   $('#loop-in').classList.toggle('on', S.loopIn !== null);
   $('#loop-out').classList.toggle('on', S.loopOut !== null);
+  markLoopButtons();
   factsKey = '';
   runFacts();
   drawStrip();
@@ -2455,13 +2488,22 @@ function drawStrip() {
   for (let k = buffered(); k > 0; k--) { j = nextIndex(j); g.fillRect(x(j) - cell / 2, 6 * dpr, cell, h - 12 * dpr); }
   g.fillStyle = stripColours['--live'];
   g.fillRect(x(S.index) - dpr, 0, 2 * dpr, h);
+  // Where you are, in words, on whichever side has room.
+  const label = `photo ${S.index + 1} / ${N}`;
+  g.font = `${10 * dpr}px "SF Mono", ui-monospace, Menlo, monospace`;
+  const tw = g.measureText(label).width;
+  const lx = x(S.index) > w / 2 ? 6 * dpr : w - tw - 6 * dpr;
+  g.fillStyle = 'rgba(10,10,10,.75)';
+  g.fillRect(lx - 3 * dpr, 4 * dpr, tw + 6 * dpr, h - 8 * dpr);
+  g.fillStyle = '#b8b2a4';
+  g.textBaseline = 'middle';
+  g.fillText(label, lx, h / 2);
 }
 
 const COMPASS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
 let factsKey = '';
 function runFacts() {
   $('#strip').hidden = S.source === 'sv';
-  $('#strip').nextElementSibling.hidden = S.source === 'sv';
   if (S.source === 'sv') return svFacts();
   const A = S.runA;
   const a = A && A.at(S.index);
@@ -2554,7 +2596,7 @@ if (!OUTPUT) {
   strip.addEventListener('pointerdown', (e) => { if (learnMode) return; strip.setPointerCapture(e.pointerId); goTo(e); });
   strip.addEventListener('pointermove', (e) => { if (strip.hasPointerCapture(e.pointerId)) goTo(e); });
   strip.addEventListener('pointerup', () => { if (S.runA) prefetch(S.index); });
-  for (const t of document.querySelectorAll('#below-tabs [data-below]')) t.addEventListener('click', () => { factsKey = ''; placeKey = ''; });
+  for (const t of document.querySelectorAll('#insp-tabs [data-tab]')) t.addEventListener('click', () => { factsKey = ''; placeKey = ''; });
   controls.set('loop', { id: 'loop', label: 'loop on/off', kind: 'toggle', get: () => S.loop, flip: toggleLoop });
   controls.set('loop.in', { id: 'loop.in', label: 'loop in (here)', kind: 'trigger', run: () => setLoopPoint('in') });
   controls.set('loop.out', { id: 'loop.out', label: 'loop out (here)', kind: 'trigger', run: () => setLoopPoint('out') });
@@ -2723,7 +2765,8 @@ function takeState() {
   return st;
 }
 
-const laneOn = (lane) => (take.solo.size ? take.solo.has(lane) : !take.mute.has(lane));
+// A lane plays from the take unless it's muted, another is soloed, or an overdub has taken it over.
+const laneOn = (lane) => !take.od?.open.has(lane) && (take.solo.size ? take.solo.has(lane) : !take.mute.has(lane));
 let svBusy = false;
 let runBusy = null;
 
@@ -2757,7 +2800,9 @@ function applyTakeState(st) {
   }
   if (on('live') && st.live !== undefined && st.live !== S.live) S.live = st.live;
   if (on('kick') && st.kick && st.kick !== kick.type) setKick(st.kick);
-  for (const k of Object.keys(neutralLook())) if (on(`look.${k}`) && st[`look.${k}`] !== undefined) look[k] = st[`look.${k}`];
+  let looked = false;
+  for (const k of Object.keys(neutralLook())) if (on(`look.${k}`) && st[`look.${k}`] !== undefined && look[k] !== st[`look.${k}`]) { look[k] = st[`look.${k}`]; looked = true; }
+  if (looked && !OUTPUT) refreshEffects(); // the sliders follow the take, so you can see where you'd be playing over
   sync();
 }
 
@@ -2795,6 +2840,7 @@ function toggleTakePlay() {
 }
 
 function stopTake() {
+  if (take.od) stopOverdub();
   take.playing = false;
   take.pendingAt = 0;
   status('Take stopped: the controls are yours again.');
@@ -2802,6 +2848,7 @@ function stopTake() {
 }
 
 function selectTake(name) {
+  if (take.od) stopOverdub();
   take.current = name;
   take.prep = name && take.all[name] ? prepare(take.all[name]) : null;
   take.beat = 0;
@@ -2832,6 +2879,7 @@ function takeTick(ms, now) {
     take.pendingAt = 0;
     take.playing = true;
     take.beat = take.reverse ? hi - 1e-6 - since : lo + since;
+    if (!OUTPUT) renderLaunchers();
   } else if (take.playing && take.prep) {
     take.beat += beats * take.rate * (take.reverse ? -1 : 1);
   }
@@ -2845,60 +2893,214 @@ function takeTick(ms, now) {
       stopTake();
       return;
     }
+    if (take.od) overdubTick(now); // before the take moves things, so your change is seen first
     const i = frameAt(take.prep, take.beat);
     if (i !== take.lastFrame) {
       take.lastFrame = i;
       applyTakeState(take.prep.states[i]);
+      if (take.od) overdubApplied();
     }
   }
+}
+
+// ---- overdub ----
+// Shift+Q while a take plays (or to start one): the take keeps playing, and a
+// lane becomes yours the moment you change something in it (the live value
+// differs from what the take last put there). From then on, until you stop,
+// the take leaves that lane alone and what you play is recorded into it at the
+// take's playhead, round the loop. Stopping lays it over the take (overdub()
+// in recorder.js); ⌘Z swaps the take back to how it was (again: redo).
+
+function toggleOverdub() {
+  if (take.od) return stopOverdub();
+  if (!take.prep) return status('No take yet: Q records one.');
+  if (takeRec.take) return status('Finish the recording first (Q), then overdub it.');
+  if (take.reverse) return status("Overdub plays forward only: turn reverse off first.");
+  take.od = { open: new Map(), segs: [], ref: takeState(), last: {}, prev: null, hold: false, at: 0 };
+  if (!takePlaying()) toggleTakePlay();
+  status(`Overdubbing "${take.current}": play over it. Whatever you change becomes yours (red); the rest keeps playing. Shift+Q stops.`);
+  renderTake();
+}
+
+const OD_TOLERANCE = { 'sv.heading': 0.5, 'sv.pitch': 0.5 }; // Google eases its view a little
+function odDiffers(k, a, b) {
+  if (typeof a === 'number' && typeof b === 'number') return Math.abs(a - b) > (OD_TOLERANCE[k] || 1e-6);
+  return a !== b;
+}
+
+function overdubTick(now) {
+  const o = take.od;
+  const live = takeState();
+  // A place or panorama the take is still loading isn't you: wait for it, then look again.
+  let routeQuiet = false;
+  if (runBusy || svBusy) { o.hold = true; routeQuiet = true; } else if (o.hold) { o.hold = false; routeQuiet = true; take.lastFrame = -1; }
+  // Round the loop: each pass is its own stretch, so a later pass replaces an earlier one.
+  if (o.prev !== null && take.beat < o.prev - 1e-9) { const [lo, hi] = takeSpan(); cutOverdub(hi, lo, live); }
+  o.prev = take.beat;
+  for (const k of new Set([...Object.keys(live), ...Object.keys(o.ref)])) {
+    const lane = laneOf(k);
+    if (lane === 'other' || o.open.has(lane) || k === 'runB' || (lane === 'route' && routeQuiet)) continue;
+    if (odDiffers(k, live[k], o.ref[k])) punchIn(lane, live);
+  }
+  // Lanes the take isn't playing (muted, or not soloed) follow you until you change them.
+  for (const k of Object.keys(live)) if (!laneOn(laneOf(k))) o.ref[k] = live[k];
+  // Record what you play in your lanes (photo changes at once, the rest ~30 times a second).
+  const due = now - o.at >= 33;
+  if (due) o.at = now;
+  for (const seg of o.open.values()) {
+    seg.b = take.beat;
+    for (const [k, v] of Object.entries(live)) {
+      if (laneOf(k) !== seg.lane || v === o.last[k] || (!due && seg.lane !== 'route')) continue;
+      seg.events.push({ b: odBeat(seg.lane), k, v });
+      o.last[k] = v;
+    }
+  }
+}
+
+// After the take has put a frame in place: that's what "unchanged" means now.
+function overdubApplied() {
+  const live = takeState();
+  for (const k of Object.keys(live)) if (laneOn(laneOf(k))) take.od.ref[k] = live[k];
+}
+
+// The take's playhead; photo steps snap to the step grid (as in a recording).
+function odBeat(lane) {
+  let b = take.beat;
+  if (lane === 'route' && S.tempo) {
+    const step = take.rate / S.stepsPerBeat;
+    const snapped = Math.round(b / step) * step;
+    if (Math.abs(snapped - b) < 0.15 * take.rate) b = snapped;
+  }
+  return b;
+}
+
+function punchIn(lane, live) {
+  const o = take.od;
+  const seg = { lane, a: take.beat, b: take.beat, events: [] };
+  for (const [k, v] of Object.entries(live)) if (laneOf(k) === lane) { seg.events.push({ b: take.beat, k, v }); o.last[k] = v; }
+  o.open.set(lane, seg);
+  status(`Overdub: "${laneName(lane)}" is yours now (red). Shift+Q keeps it.`);
+  renderTake();
+}
+
+// The playhead jumped (round the loop, or a click on a lane): close each open
+// stretch where it was and start a new one where it is now.
+function cutOverdub(end, start, live = takeState()) {
+  const o = take.od;
+  for (const [lane, seg] of o.open) {
+    seg.b = end;
+    o.segs.push(seg);
+    const next = { lane, a: start, b: start, events: [] };
+    for (const [k, v] of Object.entries(live)) if (laneOf(k) === lane) { next.events.push({ b: start, k, v }); o.last[k] = v; }
+    o.open.set(lane, next);
+  }
+}
+
+function stopOverdub() {
+  const o = take.od;
+  if (!o) return;
+  take.od = null;
+  const t = take.prep?.take;
+  if (!t) return renderTake();
+  if (take.playing) overdubTickFinal(o);
+  const end = Math.max(0, Math.min(t.beats, take.beat));
+  for (const seg of o.open.values()) { seg.b = take.playing ? end : seg.b; o.segs.push(seg); }
+  const segs = o.segs.filter((sg) => sg.b > sg.a);
+  if (!segs.length) { status('Overdub stopped: nothing was changed, the take is as it was.'); return renderTake(); }
+  const name = take.current;
+  const merged = overdub(t, segs);
+  take.undo = { name, other: t, undone: false };
+  take.all[name] = merged;
+  saveTakes();
+  take.prep = prepare(merged);
+  take.lastFrame = -1;
+  const lanes = [...new Set(segs.map((sg) => laneName(sg.lane)))];
+  status(`Overdub kept in "${name}": ${lanes.join(', ')} replaced. ⌘Z undoes it.`);
+  renderTake();
+}
+// The last moment of an overdub counts too (a knob turned just before stopping).
+function overdubTickFinal(o) { take.od = o; overdubTick(performance.now() + 1000); take.od = null; }
+
+// ⌘Z: the take as it was before the last overdub; again: the overdub back.
+function undoOverdub() {
+  if (take.od) return status('Stop the overdub first (Shift+Q).');
+  const u = take.undo;
+  if (!u || !take.all[u.name]) return status('No overdub to undo.');
+  const now = take.all[u.name];
+  take.all[u.name] = u.other;
+  u.other = now;
+  u.undone = !u.undone;
+  saveTakes();
+  if (take.current === u.name) { take.prep = prepare(take.all[u.name]); take.lastFrame = -1; renderTake(); } else selectTake(u.name);
+  status(u.undone ? `Overdub undone: "${u.name}" is as it was. ⌘Z again brings the overdub back.` : `Overdub back in "${u.name}".`);
 }
 
 // ---- the lanes ----
 
 const LANE_ORDER = ['route', 'camera', 'blend', 'live', 'kick'];
 function lanesOf(prep) {
-  const fx = [...prep.lanes.keys()].filter((l) => l.startsWith('fx.')).sort();
-  return [...LANE_ORDER.filter((l) => l === 'route' || prep.lanes.has(l)), ...fx];
+  const has = new Set([...prep.lanes.keys(), ...(take.od ? take.od.open.keys() : [])]);
+  const fx = [...has].filter((l) => l.startsWith('fx.')).sort();
+  return [...LANE_ORDER.filter((l) => l === 'route' || has.has(l)), ...fx];
 }
 const laneName = (l) => LANE_LABEL[l] || (l.startsWith('fx.') ? l.slice(3).replace('_', ' ') : l);
 const laneTitle = (l) => LANE_TITLE[l] || (l.startsWith('fx.') ? `the ${l.slice(3).replace('_', ' ')} effect` : l);
 
 let renderTake = function renderTakeBase() {
   $('#take-rec').classList.toggle('on', !!takeRec.take);
-  $('#take-rec').innerHTML = takeRec.take ? 'stop recording <kbd>Q</kbd>' : 'record take <kbd>Q</kbd>';
+  $('#take-rec').innerHTML = takeRec.take ? 'stop rec <kbd>Q</kbd>' : 'rec take <kbd>Q</kbd>';
+  $('#take-od').classList.toggle('on', !!take.od);
+  $('#take-od').innerHTML = take.od ? 'stop overdub <kbd>⇧Q</kbd>' : 'overdub <kbd>⇧Q</kbd>';
+  $('#take-undo').disabled = !take.undo || !take.all[take.undo.name];
+  $('#take-undo').innerHTML = `${take.undo?.undone ? 'redo' : 'undo'} overdub <kbd>⌘Z</kbd>`;
   $('#take-play').classList.toggle('on', takePlaying());
-  $('#take-play').innerHTML = takePlaying() ? '■ stop take <kbd>W</kbd>' : '▶ play take <kbd>W</kbd>';
+  $('#take-play').innerHTML = takePlaying() ? '■ stop <kbd>W</kbd>' : '▶ play <kbd>W</kbd>';
   setSw('#take-loop', take.loop);
   setSw('#take-rev', take.reverse);
   setSeg('#take-rate', 'rate', take.rate);
-  const names = Object.keys(take.all);
-  $('#take-list').replaceChildren(...(names.length ? names.map((n) => Object.assign(document.createElement('option'), { value: n, textContent: n })) : [Object.assign(document.createElement('option'), { value: '', textContent: 'no takes yet' })]));
-  $('#take-list').value = take.current || '';
   if (document.activeElement !== $('#take-name')) $('#take-name').value = take.current || '';
   const p = take.prep;
-  if (p) {
-    const t = p.take;
-    $('#take-info').textContent = `${t.beats} beats (recorded at ${t.bpm} BPM, now ${S.bpm}: ${(S.bpm / t.bpm).toFixed(2)}× as fast) · ${t.frames.length} changes · click a lane to jump there.`;
-  }
-  $('#lanes').replaceChildren(...(p ? lanesOf(p).map((lane) => {
+  $('#take-menu-btn').textContent = `${take.current || 'no take'} ▾`;
+  $('#take-menu-title').textContent = take.current || 'no take yet';
+  $('#take-empty').hidden = !!p || !!takeRec.take;
+  for (const id of ['#take-name', '#take-trim-in', '#take-trim-out', '#take-clear-loop', '#take-to-pad', '#take-export', '#take-delete']) $(id).disabled = !p;
+  for (const id of ['#take-od', '#take-play', '#take-loop', '#take-rev', '#take-rate']) $(id).classList.toggle('na', !p);
+  $('#take-info').textContent = p ? `${p.take.beats} beats · recorded at ${p.take.bpm} BPM, now ${S.bpm}: ${(S.bpm / p.take.bpm).toFixed(2)}× as fast · ${p.take.frames.length} changes.` : 'Q records a take; or import one from a file.';
+  // Clearing a lane is in this menu, away from mute and solo.
+  $('#take-clear-lanes').replaceChildren(...(p ? [Object.assign(document.createElement('span'), { className: 'dim', textContent: 'clear a lane:' }), ...lanesOf(p).map((lane) => {
+    const b = Object.assign(document.createElement('button'), { textContent: laneName(lane), title: `remove the ${laneTitle(lane)} changes: the value at the start holds` });
+    b.dataset.lane = lane;
+    b.addEventListener('click', () => {
+      if (!confirm(`Clear "${laneName(lane)}" in this take? Its value at the start will hold.`)) return;
+      if (take.od) stopOverdub();
+      clearLane(take.prep.take, lane);
+      saveTakes();
+      selectTake(take.current);
+    });
+    return b;
+  })] : []));
+  setSw('#loop', S.loop);
+  $('#loop-in').classList.toggle('on', S.loopIn !== null);
+  $('#loop-out').classList.toggle('on', S.loopOut !== null);
+  markLoopButtons();
+  const ruler = document.createElement('div');
+  ruler.className = 'ruler';
+  ruler.innerHTML = '<span></span><span></span><canvas class="ruler-c" title="beats"></canvas>';
+  $('#lanes').replaceChildren(...(p ? [ruler] : []), ...(p ? lanesOf(p).map((lane) => {
     const row = document.createElement('div');
-    row.className = `lane${laneOn(lane) ? '' : ' muted'}`;
-    row.innerHTML = `<span class="lname" title="${laneTitle(lane)}">${laneName(lane)}</span><span class="lbtns"><button class="m" title="mute: leave this to you">M</button><button class="s" title="solo: play only this">S</button><button class="c" title="clear: remove its changes">×</button></span><canvas></canvas>`;
+    row.className = `lane${take.od?.open.has(lane) ? ' od' : laneOn(lane) ? '' : ' muted'}`;
+    row.innerHTML = `<span class="lname" title="${laneTitle(lane)}">${laneName(lane)}</span><span class="lbtns"><button class="m" title="mute: leave this to you">m</button><button class="s" title="solo: play only this">s</button></span><canvas></canvas>`;
     row.querySelector('.m').classList.toggle('on', take.mute.has(lane));
     row.querySelector('.s').classList.toggle('on', take.solo.has(lane));
     row.querySelector('.m').addEventListener('click', () => { if (!take.mute.delete(lane)) take.mute.add(lane); take.lastFrame = -1; renderTake(); });
     row.querySelector('.s').addEventListener('click', () => { if (!take.solo.delete(lane)) take.solo.add(lane); take.lastFrame = -1; renderTake(); });
-    row.querySelector('.c').addEventListener('click', () => {
-      if (!confirm(`Clear "${laneName(lane)}" in this take? Its value at the start will hold.`)) return;
-      clearLane(p.take, lane);
-      saveTakes();
-      selectTake(take.current);
-    });
     const c = row.querySelector('canvas');
     c.dataset.lane = lane;
     c.addEventListener('click', (e) => {
       const r = c.getBoundingClientRect();
+      const from = take.beat;
       take.beat = ((e.clientX - r.left) / r.width) * p.take.beats;
+      if (take.od) { cutOverdub(from, take.beat); take.od.prev = take.beat; }
       take.lastFrame = -1;
       const i = frameAt(p, take.beat);
       take.lastFrame = i;
@@ -2910,13 +3112,38 @@ let renderTake = function renderTakeBase() {
   drawLanes();
 }
 
+// Above the lanes: beat numbers, the take's loop and the playhead.
+function drawRuler(p) {
+  const c = $('#lanes .ruler-c');
+  if (!c || !c.clientWidth) return;
+  const dpr = devicePixelRatio;
+  const w = (c.width = Math.round(c.clientWidth * dpr));
+  const h = (c.height = Math.round(c.clientHeight * dpr));
+  const g = c.getContext('2d');
+  const len = p.take.beats;
+  const x = (b) => (b / len) * w;
+  g.clearRect(0, 0, w, h);
+  const t = p.take;
+  if (t.loopIn != null && t.loopOut != null) { g.fillStyle = 'rgba(232,168,76,.35)'; g.fillRect(x(t.loopIn), h - 3 * dpr, x(t.loopOut) - x(t.loopIn), 3 * dpr); }
+  g.font = `${9 * dpr}px "SF Mono", ui-monospace, Menlo, monospace`;
+  g.textBaseline = 'top';
+  const every = Math.max(1, Math.ceil(len / Math.max(1, w / (22 * dpr)))); // numbers far enough apart to read
+  for (let b = 0; b < len; b++) {
+    g.fillStyle = b % 4 ? '#5a5650' : '#b8b2a4';
+    g.fillRect(Math.round(x(b)), h - 5 * dpr, dpr, 5 * dpr);
+    if (b % every === 0) { g.fillStyle = '#b8b2a4'; g.fillText(String(b + 1), x(b) + 3 * dpr, 0); }
+  }
+  if (!takeRec.take) { g.fillStyle = '#ff5a45'; g.fillRect(x(take.beat) - dpr, 0, 2 * dpr, h); }
+}
+
 // Each lane: beat lines, then its changes (a line for numbers, marks for the rest), and the playhead.
 function drawLanes() {
   const p = take.prep;
   if (!p) return;
   const len = p.take.beats;
   const colours = ['#e8a84c', '#4ade80', '#67e8f9', '#f472b6', '#c084fc', '#dcd7c9'];
-  for (const c of document.querySelectorAll('#lanes canvas')) {
+  drawRuler(p);
+  for (const c of document.querySelectorAll('#lanes .lane canvas')) {
     if (!c.clientWidth) continue;
     const dpr = devicePixelRatio;
     const w = (c.width = Math.round(c.clientWidth * dpr));
@@ -2932,36 +3159,42 @@ function drawLanes() {
     const counts = new Map();
     for (const f of p.take.frames.slice(1)) for (const k of Object.keys(f.d)) if (laneOf(k) === lane) counts.set(k, (counts.get(k) || 0) + 1);
     const key = lane === 'route' ? (p.states[0].source === 'sv' ? 'sv.pano' : 'index') : [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
-    if (key) {
-      const pts = p.states.map((st, i) => [p.times[i], st[key]]);
-      const nums = pts.map(([, v]) => v).filter((v) => typeof v === 'number');
-      g.globalAlpha = on ? 1 : 0.35;
-      if (nums.length === pts.length && nums.length > 1) {
-        const lo = Math.min(...nums);
-        const hi = Math.max(...nums);
-        g.strokeStyle = lane === 'route' ? '#4ade80' : '#e8a84c';
-        g.lineWidth = 1.5 * dpr;
-        g.beginPath();
-        pts.forEach(([b, v], i) => {
-          const y = h - 3 * dpr - ((v - lo) / (hi - lo || 1)) * (h - 6 * dpr);
-          if (i) g.lineTo(x(b), y); else g.moveTo(x(b), y);
-          if (i === pts.length - 1) g.lineTo(w, y);
-        });
-        g.stroke();
-      } else {
-        // Categories (a run, a panorama, a look on/off): a colour per value.
-        const seen = new Map();
-        pts.forEach(([b, v], i) => {
-          if (!seen.has(String(v))) seen.set(String(v), colours[seen.size % colours.length]);
-          g.fillStyle = seen.get(String(v));
-          const end = i + 1 < pts.length ? pts[i + 1][0] : len;
-          g.fillRect(x(b), 4 * dpr, Math.max(dpr, x(end) - x(b)), h - 8 * dpr);
-          g.fillStyle = '#050505';
-          g.fillRect(x(b), 4 * dpr, dpr, h - 8 * dpr);
-        });
+    // What this overdub has covered so far in this lane.
+    const odSegs = take.od ? [...take.od.segs, ...take.od.open.values()].filter((sg) => sg.lane === lane) : [];
+    const odX = odSegs.map((sg) => [x(sg.a), Math.max(2 * dpr, x(sg.b) - x(sg.a))]);
+    const drawCurve = (ink) => {
+      if (key) {
+        const pts = p.states.map((st, i) => [p.times[i], st[key]]);
+        const nums = pts.map(([, v]) => v).filter((v) => typeof v === 'number');
+        g.globalAlpha = ink || on ? 1 : 0.35;
+        if (nums.length === pts.length && nums.length > 1) {
+          const lo = Math.min(...nums);
+          const hi = Math.max(...nums);
+          g.strokeStyle = ink || (lane === 'route' ? '#4ade80' : '#e8a84c');
+          g.lineWidth = (ink ? 2 : 1.5) * dpr;
+          g.beginPath();
+          pts.forEach(([b, v], i) => {
+            const y = h - 3 * dpr - ((v - lo) / (hi - lo || 1)) * (h - 6 * dpr);
+            if (i) g.lineTo(x(b), y); else g.moveTo(x(b), y);
+            if (i === pts.length - 1) g.lineTo(w, y);
+          });
+          g.stroke();
+        } else if (!ink) {
+          // Categories (a run, a panorama, a look on/off): a colour per value.
+          const seen = new Map();
+          pts.forEach(([b, v], i) => {
+            if (!seen.has(String(v))) seen.set(String(v), colours[seen.size % colours.length]);
+            g.fillStyle = seen.get(String(v));
+            const end = i + 1 < pts.length ? pts[i + 1][0] : len;
+            g.fillRect(x(b), 4 * dpr, Math.max(dpr, x(end) - x(b)), h - 8 * dpr);
+            g.fillStyle = '#050505';
+            g.fillRect(x(b), 4 * dpr, dpr, h - 8 * dpr);
+          });
+        }
+        g.globalAlpha = 1;
       }
-      g.globalAlpha = 1;
-    }
+    };
+    drawCurve();
     const tk = p.take;
     if (tk.loopIn != null && tk.loopOut != null) {
       g.fillStyle = take.loop ? 'rgba(232,168,76,.18)' : 'rgba(232,168,76,.07)';
@@ -2970,24 +3203,44 @@ function drawLanes() {
       g.fillRect(x(tk.loopIn) - dpr, 0, 2 * dpr, h);
       g.fillRect(x(tk.loopOut) - dpr, 0, 2 * dpr, h);
     }
+    if (odX.length) {
+      // The overdubbed part stands out: the line in white on red, a red frame
+      // with a bold edge where it punched in, a white tick per recorded change.
+      g.save();
+      g.beginPath();
+      for (const [x0, wd] of odX) g.rect(x0, 0, wd, h);
+      g.clip();
+      g.fillStyle = '#c23a2b'; // solid, drawn last: the loop shading can't wash it out
+      g.fillRect(0, 0, w, h);
+      g.globalAlpha = 1;
+      drawCurve('#ffffff');
+      g.restore();
+      g.fillStyle = '#ff5a45';
+      for (const [x0, wd] of odX) { g.fillRect(x0, 0, wd, 2 * dpr); g.fillRect(x0, h - 2 * dpr, wd, 2 * dpr); g.fillRect(x0, 0, 2 * dpr, h); }
+      g.fillStyle = '#ffffff';
+      for (const sg of odSegs) for (const ev of sg.events) g.fillRect(x(ev.b), h - 6 * dpr, dpr, 4 * dpr);
+    }
     const at = takeRec.take ? null : take.beat;
-    if (at !== null) { g.fillStyle = '#ff5a45'; g.fillRect(x(at) - dpr, 0, 2 * dpr, h); }
+    if (at !== null) { g.fillStyle = take.od ? '#ffffff' : '#ff5a45'; g.fillRect(x(at) - dpr, 0, 2 * dpr, h); } // white over the red while overdubbing
   }
 }
 
 if (!OUTPUT) {
   $('#take-rec').addEventListener('click', toggleTakeRecord);
   $('#take-play').addEventListener('click', toggleTakePlay);
+  $('#take-od').addEventListener('click', toggleOverdub);
+  $('#take-undo').addEventListener('click', undoOverdub);
   onSwitch('#take-loop', () => { take.loop = !take.loop; renderTake(); });
-  onSwitch('#take-rev', () => { take.reverse = !take.reverse; renderTake(); });
+  onSwitch('#take-rev', () => { if (take.od && !take.reverse) return status('Overdub plays forward only.'); take.reverse = !take.reverse; renderTake(); });
   for (const b of $('#take-rate').querySelectorAll('[data-rate]')) b.addEventListener('click', () => { take.rate = +b.dataset.rate; renderTake(); });
-  $('#take-list').addEventListener('change', (e) => { e.target.blur(); selectTake(e.target.value); });
   $('#take-name').addEventListener('change', (e) => {
     const to = e.target.value.trim();
     const from = take.current;
     e.target.blur();
     if (!from || !to || to === from || to in take.all) return renderTake();
+    if (take.od) stopOverdub();
     take.all[to] = { ...take.all[from], name: to };
+    if (take.undo?.name === from) take.undo.name = to;
     delete take.all[from];
     saveTakes();
     for (const sl of slots) if (sl.take === from) { sl.take = to; sl.name = to; }
@@ -2999,11 +3252,13 @@ if (!OUTPUT) {
   $('#take-name').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === 'Escape') e.target.blur(); });
   $('#take-trim-in').addEventListener('click', () => {
     if (!take.prep) return;
+    if (take.od) stopOverdub();
     trim(take.prep.take, take.beat, take.prep.take.beats);
     saveTakes(); selectTake(take.current);
     status('Trimmed the start to where the playhead was.');
   });
   $('#take-trim-out').addEventListener('click', () => {
+    if (take.od) stopOverdub();
     if (!take.prep || take.beat < 1) return status('Move the playhead (click a lane) past the first beat first.');
     trim(take.prep.take, 0, Math.ceil(take.beat));
     saveTakes(); selectTake(take.current);
@@ -3039,10 +3294,17 @@ if (!OUTPUT) {
       status(`Could not import that file: ${err.message}`, true);
     }
   });
-  setInterval(() => { if (take.playing || takeRec.take) drawLanes(); if (takeRec.take) { const b = Math.floor(takeRec.beat); $('#hud-rec').textContent = `● take · beat ${b + 1}`; } else if (!$('#hud-rec').textContent.includes('REC')) $('#hud-rec').textContent = ''; }, 100);
+  setInterval(() => {
+    $('#take-pos').innerHTML = takeRec.take ? `recording · beat <b>${Math.floor(takeRec.beat) + 1}</b>` : take.prep ? `beat <b>${Math.min(take.prep.take.beats, Math.floor(take.beat) + 1)}</b> / ${take.prep.take.beats}` : '';
+  }, 100);
+  setInterval(() => { if (take.playing || takeRec.take) drawLanes(); if (takeRec.take) { const b = Math.floor(takeRec.beat); $('#hud-rec').textContent = `● take · beat ${b + 1}`; } else if (take.od) $('#hud-rec').textContent = `● overdub · beat ${Math.floor(take.beat) + 1}`; else if (!$('#hud-rec').textContent.includes('REC')) $('#hud-rec').textContent = ''; }, 100);
   controls.set('take.record', { id: 'take.record', label: 'record a take', kind: 'trigger', run: toggleTakeRecord });
   controls.set('take.play', { id: 'take.play', label: 'play / stop the take', kind: 'trigger', run: toggleTakePlay });
   controls.set('take.loop', { id: 'take.loop', label: 'take loop', kind: 'toggle', get: () => take.loop, flip: () => { take.loop = !take.loop; renderTake(); } });
+  controls.set('take.overdub', { id: 'take.overdub', label: 'overdub the take (start / stop)', kind: 'trigger', run: toggleOverdub });
+  controls.set('take.undo', { id: 'take.undo', label: 'undo / redo the last overdub', kind: 'trigger', run: undoOverdub });
+  $('#take-od').dataset.learn = 'take.overdub';
+  $('#take-undo').dataset.learn = 'take.undo';
   $('#take-rec').dataset.learn = 'take.record';
   $('#take-play').dataset.learn = 'take.play';
   $('#take-loop').dataset.learn = 'take.loop';
@@ -3056,7 +3318,20 @@ if (!OUTPUT) window.blend.onScreen = () => shown.a; // which photo is actually s
 // I / O and the loop switch act on the take while one is playing, or while the
 // sequence tab is open with a take selected; otherwise on the run, as before.
 function takeContext() {
-  return !!take.prep && (takePlaying() || !$('[data-below-panel="seq"]').hidden);
+  return takesReady && !!take.prep && takePlaying();
+}
+
+// While a take plays, the transport's in / out / loop act on it: they turn green
+// and show the take's loop instead of the run's.
+var takesReady = false; // var: sync() runs before the takes are set up
+function markLoopButtons() {
+  const tk = takeContext();
+  for (const sel of ['#loop-in', '#loop-out', '#loop']) $(sel).classList.toggle('take', tk);
+  if (!tk) return;
+  const t = take.prep.take;
+  setSw('#loop', take.loop);
+  $('#loop-in').classList.toggle('on', t.loopIn != null);
+  $('#loop-out').classList.toggle('on', t.loopOut != null);
 }
 
 // The stretch a take loops: its own in/out if set, else all of it.
@@ -3105,14 +3380,16 @@ function renderLaunchers() {
   box.replaceChildren(...names.map((n) => {
     controls.set(`take:${n}`, { id: `take:${n}`, label: `launch "${n}"`, kind: 'trigger', run: () => launchTake(n) });
     const b = document.createElement('button');
-    b.className = `launch${take.current === n && takePlaying() ? ' on' : ''}`;
+    const cur = take.current === n;
+    b.className = `launch chip${cur ? ' cur' : ''}${cur && take.playing ? ' playing' : ''}${cur && take.pendingAt > 0 ? ' next' : ''}`;
     b.dataset.learn = `take:${n}`;
-    b.textContent = `▶ ${n}`;
-    b.title = 'launch on the next beat (again: stop) · in learn mode (M): click, then press a pad or key';
-    b.addEventListener('click', () => launchTake(n));
+    b.textContent = n;
+    b.title = 'stopped: choose this take · playing: switch to it on the next beat (the playing one: stop) · in learn mode (M): click, then press a pad or key to launch it';
+    // Stopped: choose it (W plays). Playing: launch it on the next beat, as a pad does.
+    b.addEventListener('click', () => (takePlaying() || takeRec.take ? launchTake(n) : selectTake(n)));
     return b;
   }));
-  if (names.length) box.prepend(Object.assign(document.createElement('span'), { className: 'dim', textContent: 'launch:' }));
+  if (names.length) box.prepend(Object.assign(document.createElement('span'), { className: 'dim', textContent: 'takes' }));
   $('#take-pad').replaceChildren(...slots.map((sl, i) => Object.assign(document.createElement('option'), { value: String(i + 1), textContent: `pad ${i + 1} · ${sl.name}` })));
 }
 
@@ -3134,5 +3411,16 @@ if (!OUTPUT) {
     renderTake();
   });
   $('#take-clear-loop').addEventListener('click', clearTakeLoop);
+  // take ▾ opens upwards over the picture, from the take bar.
+  const menu = $('#take-menu');
+  $('#take-menu-btn').addEventListener('click', () => {
+    menu.hidden = !menu.hidden;
+    $('#take-menu-btn').classList.toggle('on', !menu.hidden);
+    if (!menu.hidden) menu.style.bottom = `${$('.main').clientHeight - $('#timeline').offsetTop + 4}px`;
+  });
+  document.addEventListener('pointerdown', (e) => {
+    if (!menu.hidden && !e.target.closest('#take-menu, #take-menu-btn')) { menu.hidden = true; $('#take-menu-btn').classList.remove('on'); }
+  });
+  takesReady = true;
   renderTake();
 }

@@ -12,6 +12,7 @@ import { Kick, KICKS } from './kick.js';
 import { ProjectStore, PROJECT_VERSION, migrate, fingerprint, download } from './project.js';
 import { Profiles, parse, srcOf, describe, shortName, MINILAB, PROFILE_VERSION } from './midi.js';
 import { StreetViewLayer, SV_EFFECTS } from './streetview.js';
+import { VideoRecorder, SIZES, loadVideoSettings, saveVideoSettings, describeVideo } from '../experiments/lib/video-recorder.js';
 import { DEFAULT_LOCATIONS } from '../js/locations.js';
 
 const $ = (s) => document.querySelector(s);
@@ -513,6 +514,7 @@ function tick(now) {
     fx.resize(w, h);
     renderer.render({ yaw, pitch, fov: S.fov }, { mode: S.mode, mix: S.mix }, S.smooth * stepDuration(), fx.sceneTarget);
     fx.render(look, now, OUTPUT || recorder ? fade : 1);
+    if (recorder) recorder.frame($('#view'));
   }
   hud(now);
   if (!OUTPUT) postIfMoved();
@@ -1618,42 +1620,69 @@ onSwitch('#sun', toggleSun);
 // ---- recording ---------------------------------------------------------------------------
 // The canvas alone, straight to a video file: no panel, no cursor, no screen-capture UI.
 
-let recorder = null;
+let recorder = null; // a VideoRecorder while recording
 let recordStart = 0;
+let videoSaving = false;
+const video = loadVideoSettings();
 
-function toggleRecord() {
+function showVideoSettings() {
+  setSeg('#video-size', 'size', video.size);
+  setSeg('#video-fps', 'fps', video.fps);
+  setSeg('#video-quality', 'quality', video.quality);
+  $('#video-desc').textContent = describeVideo(video);
+  for (const b of document.querySelectorAll('#video-size button, #video-fps button, #video-quality button')) b.disabled = !!recorder;
+}
+for (const [sel, attr] of [['#video-size', 'size'], ['#video-fps', 'fps'], ['#video-quality', 'quality']]) {
+  for (const b of $(sel).querySelectorAll(`[data-${attr}]`)) {
+    b.addEventListener('click', () => {
+      video[attr] = attr === 'quality' ? b.dataset[attr] : +b.dataset[attr];
+      saveVideoSettings(video);
+      showVideoSettings();
+      b.blur();
+    });
+  }
+}
+showVideoSettings();
+
+function recordButtons(on) {
+  for (const b of [$('#record'), $('#record-2')]) b.classList.toggle('on', on);
+  $('#record').innerHTML = on ? 'stop <kbd>V</kbd>' : 'rec <kbd>V</kbd>';
+  $('#record-2').textContent = on ? 'stop recording' : 'record';
+}
+
+async function toggleRecord() {
+  if (videoSaving) return;
   if (S.source === 'sv' && !recorder) return status("Street View can't be recorded here (Google's picture can't be captured by the page). In the MIDIMap app, record its Syphon output with Syphon Recorder or OBS.", true);
   if (recorder) {
-    recorder.stop();
-    return;
-  }
-  // The picture plus the kick (a silent track while the kick is off).
-  const types = ['video/mp4;codecs=avc1.640033,mp4a.40.2', 'video/mp4;codecs=avc1.640033,opus', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
-  const mimeType = types.find((t) => MediaRecorder.isTypeSupported(t));
-  const stream = $('#view').captureStream(60);
-  for (const track of kick.start().stream.getAudioTracks()) stream.addTrack(track);
-  const chunks = [];
-  recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 24e6 });
-  recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-  recorder.onstop = () => {
-    const ext = mimeType.startsWith('video/mp4') ? 'mp4' : 'webm';
-    const blob = new Blob(chunks, { type: mimeType });
+    const rec = recorder;
+    recorder = null;
+    renderer.fixedSize = null;
+    $('#view').classList.remove('recording');
+    videoSaving = true;
+    recordButtons(false);
+    $('#hud-rec').textContent = '';
+    status('Preparing the video…');
+    const { blob, fixed, error } = await rec.stop();
+    videoSaving = false;
+    showVideoSettings();
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `midimap-fx-${stamp}.${ext}` });
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `midimap-${stamp}.mp4` });
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 60000);
-    recorder = null;
-    for (const b of [$('#record'), $('#record-2')]) b.classList.remove('on');
-    $('#record').innerHTML = 'rec <kbd>V</kbd>';
-    $('#record-2').textContent = 'record';
-    $('#hud-rec').textContent = '';
-    status(`Saved ${Math.round(blob.size / 1e6)} MB video to your Downloads folder.`);
-  };
-  recorder.start(1000);
+    if (fixed) status(`Saved the video (${Math.round(blob.size / 1e6)} MB, ${SIZES[rec.s.size].join('×')}, ${rec.s.fps} fps) to your Downloads folder.`);
+    else status(`Saved a ${Math.round(blob.size / 1e6)} MB video, but it couldn't be made editable (${error}): QuickTime will play it but not trim it.`, true);
+    return;
+  }
+  // The picture is drawn at the video's own size while recording (the monitor
+  // shows it scaled), so nothing is enlarged or squeezed.
+  const rec = new VideoRecorder(video);
+  if (!rec.start(kick.start().stream.getAudioTracks())) return status("This browser can't record MP4 video: use Chrome or Edge.", true);
+  recorder = rec;
+  renderer.fixedSize = SIZES[video.size];
+  $('#view').classList.add('recording');
   recordStart = performance.now();
-  for (const b of [$('#record'), $('#record-2')]) b.classList.add('on');
-  $('#record').innerHTML = 'stop <kbd>V</kbd>';
-  $('#record-2').textContent = 'stop recording';
+  recordButtons(true);
+  showVideoSettings();
 }
 $('#record').addEventListener('click', toggleRecord);
 $('#record-2').addEventListener('click', toggleRecord);

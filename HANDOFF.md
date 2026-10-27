@@ -5,6 +5,16 @@ author's Mac. CLAUDE.md is the stable reference (architecture, lessons);
 EDITOR-PLAN.md is the editor's design and phase list; this file is "where we
 stopped". Replace it at the end of each session.
 
+**Update 2026-10-04:** overdub is built in experiment 4 as designed below
+(Shift+Q, latched punch-in per lane, red lanes, ⌘Z undo/redo one level;
+see CLAUDE.md, "Round 3"). **2026-10-24:** the sequencer layout was
+reworked (CLAUDE.md, "Round 4"; mockup approved). **2026-10-25:** video
+recording (V) in the editor and experiment 4 now saves an ordinary MP4 that
+QuickTime trims and exports (it used to be fragmented: "not editable"), at a
+fixed size (720p / 1080p) and steady rate (30 / 60 fps), set in the output
+tab (CLAUDE.md, "Video recording"). All of this was committed and deployed
+2026-10-27.
+
 ## State at handoff
 
 Everything is committed on `main`, pushed to GitHub, and deployed to

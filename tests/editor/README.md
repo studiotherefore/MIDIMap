@@ -22,6 +22,9 @@ node tests/editor/parity.mjs         # or one at a time
 | phase6.mjs | Street View with the Google Maps stand-in (23) |
 | clock-editor.mjs | external MIDI clock timing (fake pulses) |
 | take.mjs, take2.mjs | experiment 4: takes, playback timing, lanes, take loops, pads, MIDI launch (23 + 20) |
+| overdub.mjs | experiment 4: overdub (Shift+Q) over a looping take, only touched lanes replaced, timing, undo/redo (⌘Z) (29) |
+| seqlayout.mjs | experiment 4: the sequencer layout at a MacBook window size: timeline always visible, run strip in the transport, take chips, take ▾, info tab (35) |
+| video.mjs | video recording (V) in the editor and experiment 4: size / frame rate / quality settings (kept, shared), and the file: ftyp-moov-mdat (not fragmented, so QuickTime edits it), H.264 High + AAC, exact size, pictures on the 1/fps grid (28) |
 | kick-editor.mjs | kick timing with an audio probe; `HEADED=1` for the real display/audio |
 | svreal.mjs | real Google Street View in a visible window (a few billed panorama loads) |
 | svapp.mjs, apptest.mjs | the Mac app (quit the running app first: one instance only) |

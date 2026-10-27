@@ -23,9 +23,10 @@ const key = (k) => page.keyboard.press(k);
 const wait = (ms) => page.waitForTimeout(ms);
 const midi = (...b) => ev((b) => window.__midi(...b), b);
 const T = (f) => ev(f);
+const openMenu = async () => { if (await page.isHidden('#take-menu')) await page.click('#take-menu-btn'); }; // take ▾ holds editing and files
 const results = [];
 const check = (name, ok, detail = '') => { results.push(ok); console.log(`${ok ? 'ok  ' : 'FAIL'}  ${name}${detail !== '' ? `  (${detail})` : ''}`); };
-const view = () => page.click('#view', { position: { x: 300, y: 200 } });
+const view = async () => { if (!(await page.isHidden('#take-menu'))) await page.keyboard.press('Escape'); await page.click('#view', { position: { x: 300, y: 200 } }); }; // close take ▾ first: it sits over the picture
 await view();
 
 // Record a take: 2 photos a beat for 6 s at 120 BPM.
@@ -42,8 +43,7 @@ await page.waitForFunction(() => window.blend.take.beat < 2, null, { timeout: 50
 await wait(150);
 check('whole take loops: the first photo is on screen again', (await T(() => window.blend.onScreen())) === take.first);
 
-// 2. I / O inside the take (sequence tab open), on whole beats.
-await page.click('#below-tabs [data-below="seq"]'); await view();
+// 2. I / O inside the take (while it plays), on whole beats.
 await page.waitForFunction(() => window.blend.take.beat >= 3.2 && window.blend.take.beat < 4.2, null, { timeout: 15000 });
 await key('i');
 await page.waitForFunction(() => window.blend.take.beat >= 7.2 && window.blend.take.beat < 8.2, null, { timeout: 15000 });
@@ -58,11 +58,13 @@ check('the lanes say so', (await page.textContent('#take-loop-info')).includes(`
 await page.click('#loop');
 check('the transport loop switch turns the take loop off', !(await T(() => window.blend.take.loop)));
 await page.click('#loop');
+await openMenu();
 await page.click('#take-clear-loop');
 check('clear loop: loops whole again', (await T(() => window.blend.take.prep.take.loopIn)) === undefined);
 await view(); await key('w');
 
 // 3. A take on a pad.
+await openMenu();
 await page.selectOption('#take-pad', '3');
 await page.click('#take-to-pad');
 check('put on pad 3: the pad shows the take', (await page.textContent('#slots .slot:nth-child(3)')).includes(`take · ${take.beats} beats`));
@@ -89,6 +91,7 @@ await midi(0x90, 40, 100);
 check('… and stops it', !(await T(() => window.blend.take.playing || window.blend.take.pendingAt > 0)));
 
 // 5. Rename: the pad and the MIDI key follow.
+await openMenu();
 await page.fill('#take-name', 'avenue loop'); await page.press('#take-name', 'Enter');
 check('rename: the pad follows', (await T(() => JSON.parse(localStorage.getItem('midimap.fx.slots.v1'))[2].take)) === 'avenue loop');
 check('rename: the MIDI key follows', (await T(() => window.blend.profiles.bindingsFor('take:avenue loop')[0]?.src)) === 'note:1:40');
@@ -104,7 +107,6 @@ check('… and launches it', await T(() => window.blend.take.playing && window.b
 await key('Digit3');
 
 check('no page errors', errors.length === 0, errors.join(' | '));
-await page.click('#below-tabs [data-below="seq"]'); await wait(300);
 await page.screenshot({ path: `${OUT}take2.png` });
 console.log(results.every(Boolean) ? `\nall ${results.length} checks passed` : '\nSOME CHECKS FAILED');
 await browser.close();

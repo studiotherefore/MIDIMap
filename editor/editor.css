@@ -136,6 +136,7 @@ button.small { padding: 2px 7px; font-size: 11px; }
 .monitor { position: relative; background: #000; }
 #view { display: block; width: 100%; aspect-ratio: 16 / 9; cursor: grab; }
 #view:active { cursor: grabbing; }
+#view.recording { object-fit: contain; background: #000; } /* drawn at the video's size while recording */
 #hud { position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center;
   background: rgba(5, 5, 5, .82); border: 1px solid var(--line-2); padding: 3px 8px; font-size: 11px; pointer-events: none; }
 #hud:empty, #hud-rec:empty, #hud-wait:empty { display: none; }

@@ -34,7 +34,7 @@
       <button id="midi-btn" title="MIDI">midi <span id="midi-dot" class="dot">●</span> ▾</button>
     </div>
     <div class="group">
-      <button id="record" class="rec" title="record what the output shows, with the kick (V)">rec <kbd>V</kbd></button>
+      <button id="record" class="rec" title="record what the output shows, with the kick, to a video file (V)">video <kbd>V</kbd></button>
       <button id="live" class="live" title="live: the output shows the picture; off: it fades to black (L)">live <kbd>L</kbd></button>
     </div>
     <div class="menu" id="site-menu" hidden>
@@ -118,59 +118,50 @@
     </div>
     <div class="transport">
       <button id="play" title="Space">play</button>
-      <button id="step-back" title="←">◀ step</button><button id="step-fwd" title="→">step ▶</button>
+      <button id="step-back" title="step back (←)">◀</button><button id="step-fwd" title="step forward (→)">▶</button>
       <span class="seg" id="sv-motion" title="street view: hop along the road, or turn in place" hidden><button data-motion="travel">travel</button><button data-motion="drift">drift</button></span>
-      <span class="seg" id="direction" title="R"><button data-dir="1">forward</button><button data-dir="-1">backward</button></span>
-      <span class="sep"></span>
+      <span class="seg" id="direction" title="R"><button data-dir="1">fwd</button><button data-dir="-1">back</button></span>
+      <canvas id="strip" title="the whole run: red = here, green = loaded ahead, amber = loop. Click or drag to go anywhere"></canvas>
       <button id="loop-in" title="loop in (I)">in</button><button id="loop-out" title="loop out (O)">out</button>
       <span class="sw" id="loop" role="switch" tabindex="0" title="loop on/off (Shift+I)"><i></i>loop</span>
-      <span class="sep"></span>
-      <span class="speed" id="speed"><span class="dim">speed</span> <input type="range" id="fps" min="0.5" max="12" step="0.5" value="3"> <span id="fps-val">3</span> frames/s</span>
-      <span class="dim" id="speed-locked" hidden>speed follows the tempo</span>
+      <span class="speed" id="speed" title="photos per second (when not locked to the tempo)"><input type="range" id="fps" min="0.5" max="12" step="0.5" value="3"> <span id="fps-val">3</span>/s</span>
+      <span id="speed-locked" hidden></span>
     </div>
-    <div class="below">
-      <div class="tabs" id="below-tabs">
-        <button data-below="run" class="on">this run</button>
-        <button data-below="place">this place</button>
-        <button data-below="seq">sequence <span class="dim">· experiment 4</span></button>
+    <div class="below" id="timeline">
+      <div class="tbar">
+        <button id="take-menu-btn" title="this take: rename, trim, clear a lane, pads, export / import, delete">take ▾</button>
+        <button id="take-rec" class="rec" title="record a new take (Q)">rec take <kbd>Q</kbd></button>
+        <button id="take-od" class="rec" title="overdub: play over the take while it plays; only what you change is replaced (Shift+Q)">overdub <kbd>⇧Q</kbd></button>
+        <button id="take-play" title="play the take from the next beat (W)">▶ play <kbd>W</kbd></button>
+        <span class="sw" id="take-loop" role="switch" tabindex="0" title="take loop (Shift+W)"><i></i>loop</span>
+        <span class="sw" id="take-rev" role="switch" tabindex="0" title="play the take backwards"><i></i>rev</span>
+        <span class="seg" id="take-rate" title="playback speed"><button data-rate="0.5">½×</button><button data-rate="1">1×</button><button data-rate="2">2×</button></span>
+        <span class="tpos" id="take-pos"></span>
       </div>
-      <div class="inner" data-below-panel="run">
-        <canvas id="strip" title="click or drag to go anywhere in the run"></canvas>
-        <div class="scale"><span id="strip-start">photo 1</span><span id="strip-loop"></span><span id="strip-end"></span></div>
-        <div class="facts" id="run-facts"><p class="note">No run playing yet.</p></div>
+      <div class="chips" id="take-launchers"></div>
+      <div id="lanes"></div>
+      <p class="note" id="take-empty">no takes yet · <b>Q</b> records one: everything you play (places, photos, looking, effects, live, kick) is kept against the beat. <b>W</b> plays it back on the next beat.</p>
+    </div>
+    <div class="menu" id="take-menu" hidden>
+      <h3 id="take-menu-title">take</h3>
+      <div class="inline"><input id="take-name" type="text" maxlength="60" placeholder="name" aria-label="Take name"></div>
+      <p class="note" id="take-info"></p>
+      <h3>edit</h3>
+      <div class="buttons">
+        <button id="take-trim-in" title="cut everything before the playhead">trim start at playhead</button>
+        <button id="take-trim-out" title="cut everything after the playhead">trim end at playhead</button>
+        <button id="take-undo" title="undo the last overdub; again: redo (⌘Z)" disabled>undo overdub <kbd>⌘Z</kbd></button>
       </div>
-      <div class="inner" data-below-panel="place" hidden>
-        <div class="facts place">
-          <div class="wide"><span>name</span><input id="place-name" type="text" maxlength="80" aria-label="Place name"></div>
-          <div><span>on pad</span><span class="inline"><select id="place-slot" aria-label="Pad"></select><button id="place-store">store playing photo here</button></span></div>
-        </div>
-        <div class="facts" id="place-facts"></div>
-        <p class="note" id="place-note"></p>
+      <div class="buttons"><span class="dim" id="take-loop-info" title="I / O set the take's loop at the playhead while it plays (on whole beats)"></span><button id="take-clear-loop" title="loop the whole take again">clear loop</button></div>
+      <div class="buttons" id="take-clear-lanes"></div>
+      <h3>pads &amp; files</h3>
+      <div class="buttons">
+        <span class="inline"><select id="take-pad" aria-label="Pad"></select><button id="take-to-pad">put on pad</button></span>
+        <button id="take-export">export</button>
+        <label class="button">import<input type="file" id="take-import" accept="application/json,.json" hidden></label>
+        <button id="take-delete">delete</button>
       </div>
-      <div class="inner" data-below-panel="seq" hidden>
-        <div class="take-bar">
-          <button id="take-rec" class="rec" title="record a take (Q)">record take <kbd>Q</kbd></button>
-          <button id="take-play" title="play the take from the next beat (W)">▶ play take <kbd>W</kbd></button>
-          <span class="sw" id="take-loop" role="switch" tabindex="0" title="Shift+W"><i></i>loop</span>
-          <span class="sw" id="take-rev" role="switch" tabindex="0"><i></i>reverse</span>
-          <span class="seg" id="take-rate" title="playback speed"><button data-rate="0.5">½×</button><button data-rate="1">1×</button><button data-rate="2">2×</button></span>
-          <span class="dim" id="take-loop-info" title="I / O set the take's loop at the playhead (on whole beats)"></span>
-          <button id="take-clear-loop" title="loop the whole take again">clear loop</button>
-        </div>
-        <div class="take-bar" id="take-launchers"></div>
-        <div class="take-bar">
-          <select id="take-list" aria-label="Take"></select>
-          <input id="take-name" type="text" maxlength="60" placeholder="name" aria-label="Take name">
-          <button id="take-trim-in" title="cut everything before the playhead">trim start here</button>
-          <button id="take-trim-out" title="cut everything after the playhead">trim end here</button>
-          <button id="take-export">export</button>
-          <label class="button">import<input type="file" id="take-import" accept="application/json,.json" hidden></label>
-          <button id="take-delete">delete</button>
-          <span class="inline"><select id="take-pad" aria-label="Pad"></select><button id="take-to-pad">put on pad</button></span>
-        </div>
-        <p class="note" id="take-info">Press Q to record a take: everything you play (places, photos, looking, effects, live, kick) is kept against the beat. W plays it back on the next beat.</p>
-        <div id="lanes"></div>
-      </div>
+      <p class="note">Takes on pads launch with 1–8 (again: stop). In learn mode (M), click a take's name in the row of takes, then press any pad or key to launch it from your controller. Esc closes this.</p>
     </div>
   </main>
 
@@ -180,6 +171,7 @@
       <button data-tab="camera">camera</button>
       <button data-tab="audio">audio</button>
       <button data-tab="output">output</button>
+      <button data-tab="info" title="this run and this place: facts, photographer credit, rename, store on a pad">info</button>
       <button data-tab="keys">keys</button>
     </div>
 
@@ -257,9 +249,13 @@
         <p class="note">The picture alone, following this editor. <b>F</b> full screen · Esc leaves it.</p>
       </div>
       <div class="frame">
-        <h3>record <span><kbd>V</kbd></span></h3>
-        <div class="buttons"><button id="record-2" class="rec">record</button></div>
-        <p class="note">Records what the audience sees (the picture, the live fade, the kick) to a video file in your Downloads folder.</p>
+        <h3>video <span><kbd>V</kbd></span></h3>
+        <div class="buttons"><button id="record-2" class="rec">record video</button></div>
+        <div class="segrow"><span>frame size</span><span class="seg" id="video-size"><button data-size="720">720p</button><button data-size="1080">1080p</button></span></div>
+        <div class="segrow"><span>frame rate</span><span class="seg" id="video-fps"><button data-fps="30">30 fps</button><button data-fps="60">60 fps</button></span></div>
+        <div class="segrow"><span>quality</span><span class="seg" id="video-quality"><button data-quality="standard">standard</button><button data-quality="high">high</button></span></div>
+        <p class="note" id="video-desc"></p>
+        <p class="note">Records what the audience sees (the picture, the live fade, the kick) to your Downloads folder, as an ordinary MP4 that QuickTime, Premiere, Resolve and iMovie open, trim and export as it is.</p>
       </div>
       <div class="frame" id="syphon" hidden>
         <h3>syphon</h3>
@@ -269,11 +265,29 @@
       </div>
     </div>
 
+    <div class="inner" data-tab-panel="info" hidden>
+      <div class="frame">
+        <h3>this run</h3>
+        <p class="note scale"><span id="strip-start" hidden></span><span id="strip-loop"></span><span id="strip-end" hidden></span></p>
+        <div class="facts" id="run-facts"><p class="note">No run playing yet.</p></div>
+      </div>
+      <div class="frame">
+        <h3>this place</h3>
+        <div class="facts place">
+          <div><span>name</span><input id="place-name" type="text" maxlength="80" aria-label="Place name"></div>
+          <div><span>on pad</span><span class="inline"><select id="place-slot" aria-label="Pad"></select><button id="place-store">store playing photo here</button></span></div>
+        </div>
+        <div class="facts" id="place-facts"></div>
+        <p class="note" id="place-note"></p>
+      </div>
+    </div>
+
     <div class="inner" data-tab-panel="keys" hidden>
       <table class="keys">
         <tr><td>Space · ← →</td><td>play/pause · step a photo</td></tr>
         <tr><td>G</td><td>layer A: Mapillary ↔ Google Street View (starts where you are)</td></tr>
         <tr><td>Q · W · Shift+W</td><td>record a take (start/stop) · play/stop the take (starts on the next beat) · take loop on/off</td></tr>
+        <tr><td>Shift+Q · ⌘Z</td><td>overdub the take (start/stop; whatever you change replaces that lane, the rest plays on) · undo the last overdub (again: redo)</td></tr>
         <tr><td>I · O (takes)</td><td>while a take plays (or the sequence tab is open): its loop in · out at the playhead, on whole beats</td></tr>
         <tr><td>1–8 (takes)</td><td>a pad holding a take launches it on the next beat; again stops it ("put on pad", or learn any MIDI press on a launch button)</td></tr>
         <tr><td>R</td><td>forward / backward</td></tr>

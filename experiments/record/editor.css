@@ -136,6 +136,7 @@ button.small { padding: 2px 7px; font-size: 11px; }
 .monitor { position: relative; background: #000; }
 #view { display: block; width: 100%; aspect-ratio: 16 / 9; cursor: grab; }
 #view:active { cursor: grabbing; }
+#view.recording { object-fit: contain; background: #000; } /* drawn at the video's size while recording */
 #hud { position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center;
   background: rgba(5, 5, 5, .82); border: 1px solid var(--line-2); padding: 3px 8px; font-size: 11px; pointer-events: none; }
 #hud:empty, #hud-rec:empty, #hud-wait:empty { display: none; }
@@ -154,7 +155,7 @@ body.output #out-hint:not([hidden]) { display: block; position: fixed; top: 14px
 .speed { display: inline-flex; align-items: center; gap: 6px; }
 .speed input { width: 120px; }
 #play.on { background: var(--hot); color: #000; }
-.below { background: var(--panel); min-height: 0; overflow: auto; }
+.below { background: var(--panel); min-height: 0; overflow: hidden; display: flex; flex-direction: column; padding: 6px 10px 4px; }
 .below .tabs { position: static; }
 
 /* ---- right: inspector ---- */
@@ -246,7 +247,7 @@ body.midi-learn .topbar #midi-learn { background: var(--hot); color: #000; }
 #learn-layer .badge { position: absolute; transform: translateX(-100%); background: var(--hot); color: #000; font-size: 9px; line-height: 1; padding: 2px 3px; white-space: nowrap; }
 
 /* ---- run strip and place details (phase 5) ---- */
-#strip { display: block; width: 100%; height: 34px; margin: 2px 0 4px; cursor: pointer; }
+#strip { display: block; flex: 1 1 160px; min-width: 120px; height: 24px; cursor: pointer; }
 .scale { display: flex; justify-content: space-between; color: var(--txt-2); font-size: 10px; margin-bottom: 8px; }
 #strip-loop { color: var(--hot); }
 .facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px 14px; margin: 4px 0 8px; }
@@ -284,6 +285,9 @@ button.mark:hover, button.mark.on { color: var(--hot); }
 .lane { display: grid; grid-template-columns: 6.5em auto 1fr; gap: 6px; align-items: center; margin: 2px 0; }
 .lane .lname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--txt); }
 .lane.muted .lname { color: var(--txt-2); text-decoration: line-through; }
+.lane.od { background: rgba(255, 90, 69, .14); box-shadow: inset 3px 0 0 var(--live); }
+.lane.od .lname { color: #fff; font-weight: 700; padding-left: 6px; }
+.lane.od .lname::before { content: '● '; color: var(--live); }
 .lane .lbtns { display: flex; gap: 2px; }
 .lane .lbtns button { padding: 0 5px; font-size: 10px; }
 .lane canvas { width: 100%; height: 22px; display: block; cursor: pointer; }
@@ -291,3 +295,52 @@ button.mark:hover, button.mark.on { color: var(--hot); }
 .slot .src.tk::before { color: var(--hot); }
 .take-bar .launch.on { border-color: var(--run); color: var(--run); }
 #take-loop-info { font-size: 11px; }
+
+/* ---- experiment 4: the sequencer layout (2026-10-24) ----
+   No tabs under the monitor: the run strip sits in the transport, the take's
+   timeline is always there, editing and files live in "take ▾", facts in the
+   inspector's "info" tab. */
+.transport { flex-wrap: nowrap; }
+.transport .speed input { width: 70px; }
+.transport .take { border-color: var(--run); color: var(--run); }
+.transport .sw.take.on i { border-color: var(--run); }
+.transport .sw.take.on i::after { background: var(--run); }
+.tbar { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; flex: none; }
+.tbar .tpos { margin-left: auto; color: var(--txt-2); white-space: nowrap; }
+.tbar .tpos b { color: var(--txt); font-weight: normal; }
+#take-menu-btn { border-color: var(--hot); color: var(--hot); min-width: 8.5em; text-align: left; max-width: 14em; overflow: hidden; text-overflow: ellipsis; }
+#take-od { border-color: var(--live); color: var(--live); }
+#take-od.on { background: var(--live); color: #000; }
+#take-od.on kbd, #take-rec.on kbd { color: #000; border-color: #000; }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin-bottom: 5px; flex: none; }
+.chips:empty { display: none; }
+.chips .chip { padding: 1px 8px; }
+.chips .chip.cur { border-color: var(--hot); color: var(--hot); }
+.chips .chip.playing { border-color: var(--run); color: var(--run); }
+.chips .chip.playing::before { content: "▶ "; }
+.chips .chip.next { border-style: dashed; border-color: var(--run); color: var(--run); }
+#lanes { flex: 1; min-height: 0; overflow: auto; }
+#lanes .ruler { display: grid; grid-template-columns: 6.5em 3.6em 1fr; gap: 6px; height: 14px; }
+#lanes .ruler canvas { width: 100%; height: 14px; display: block; }
+.lane { grid-template-columns: 6.5em 3.6em 1fr; }
+#take-empty { margin: 14px 0; text-align: center; }
+.main { position: relative; }
+#take-menu { top: auto; right: auto; left: 10px; width: 540px; }
+#take-menu .buttons { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin-bottom: 6px; }
+#take-menu button:disabled { opacity: .45; cursor: default; }
+.insp .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.insp .facts.place { grid-template-columns: 1fr; }
+.insp .scale { display: block; margin: 0 0 6px; }
+/* a tab under the mouse shouldn't look chosen */
+.tabs button:hover:not(.on) { color: var(--txt); border-bottom-color: var(--line-2); }
+.tbar .na { opacity: .4; }
+#insp-tabs { flex-wrap: nowrap; }
+#insp-tabs button { padding: 9px 7px; }
+.tbar { flex-wrap: nowrap; min-width: 0; }
+.tbar > * { flex: none; }
+.tbar .seg { flex-wrap: nowrap; }
+.tbar kbd { margin-left: 3px; }
+#take-menu-btn { min-width: 6.5em; }
+.tbar .tpos { flex: 0 1 auto; overflow: hidden; }
+.insp .facts.place .inline { display: flex; flex-wrap: wrap; gap: 5px; }
+.insp .facts.place select { max-width: 100%; }

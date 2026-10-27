@@ -19,7 +19,8 @@ Three parts, one codebase:
    Mapillary imagery (open, CC-BY-SA, pixels readable). The author is using
    them to decide how recording and editing sequences should work. 1–3 led to
    the editor (frozen); current front line: **experiment 4, performance
-   recorder** (`experiments/record/`), next step **overdub**.
+   recorder** (`experiments/record/`), overdub built; next: decide where the
+   recorder goes.
 3. **The MIDIMap app** (`app/`): a small Electron app that opens the editor
    (since phase 2; experiment 3 before) and publishes a Syphon source
    "MIDIMap" at 1920×1080 (30 or 60 fps).
@@ -187,7 +188,8 @@ stay frozen (experiment 3 started as a copy of 2).
     paused) plus MIDI learn for every effect (localStorage
     `midimap.fx.learn.v1`; guessed defaults for knobs 5–8 and faders 2–4).
   - **Record** (V): `canvas.captureStream(60)` + MediaRecorder → H.264 MP4 of
-    the picture alone, saved to Downloads.
+    the picture alone, saved to Downloads (fragmented: QuickTime can't edit
+    it; the editor's recording fixes that, see "Video recording").
   - **Mirroring**: the control page broadcasts its state on
     `BroadcastChannel('midimap-fx')` at 20 Hz (`MIRROR_KEYS`, look, run,
     index). A `?output` page hides all UI and follows it: the browser's
@@ -303,6 +305,28 @@ stay frozen (experiment 3 started as a copy of 2).
   instrument at `/streetview/` and checks the forward. The Google key allows
   http://localhost:8000/*, http://localhost:8765/* (added 2026-10-03 for the
   app) and the live site.
+- **Video recording** (V; `experiments/lib/video-recorder.js` +
+  `mp4-flatten.js`, shared by the editor and experiment 4; experiment 3 keeps
+  the old way). Chrome's MediaRecorder writes *fragmented* MP4, which
+  QuickTime plays but won't trim or export ("Clip is not editable"); on stop,
+  `flattenMp4` repackages it into ftyp + moov + mdat (sample tables rebuilt
+  from the fragments, data referenced by Blob slices: no re-encoding, ~100 ms
+  for 1 GB; an edit list keeps the video's head start, as Chrome plays it,
+  where the kick was calibrated). Settings in the output tab (localStorage
+  `midimap.video.v1`, both pages): frame size 720p / 1080p (while recording,
+  `renderer.fixedSize` draws the picture at that size; the monitor shows it
+  scaled), 30 / 60 fps (frames copied into a 2D canvas on a fixed clock,
+  `captureStream(0)` + `requestFrame()`; `flattenMp4(blob, { fps })` puts
+  each picture's time on the 1/fps grid counted from the first, so ±½ frame
+  against the sound), quality standard / high (8 / 16 Mbit/s at 720p / 1080p
+  30, ×1.5 at 60, ×2 high). Files are `midimap-<date>.mp4`. If repackaging
+  fails, the original is saved and the status says so. The MediaRecorder starts on
+  the first `frame()` (started earlier, the empty canvas went in as a black
+  first frame; phase2's "picture while live" check caught it). Verified 2026-10-25:
+  28 checks (`tests/editor/video.mjs`), AVFoundation says exportable and
+  composable, and QuickTime Player trimmed and exported a recording
+  (AppleScript); a 1 GB, 120 s recording repackaged in 25 ms with identical
+  frames.
 - Verified 2026-10-01 with Playwright: 42 parity checks (keys, mouse, fake
   MiniLab, learn, looks with a faked API, output mirroring, recording), the
   clock and kick timing tests.
@@ -317,7 +341,8 @@ stay frozen (experiment 3 started as a copy of 2).
   every `look.*`), not the tempo, so playback at another BPM stretches it.
   `frames[0].d` = whole state, later frames = diffs; photos by id. Recorded
   every ~33 ms, and at once when the photo/run/panorama changes, snapped to
-  the step grid when locked. Starts on the beat line before Q; ends on a
+  the step grid when locked (changes caught between the step and the photo
+  arriving move back onto the step, or the photo change was pushed ~2 ms late). Starts on the beat line before Q; ends on a
   whole beat.
 - **Q** record, **W** play (from the next beat, counted from the beat's exact
   time), **Shift+W** loop; reverse, ½× · 1× · 2×. Playback applies the full
@@ -325,7 +350,7 @@ stay frozen (experiment 3 started as a copy of 2).
   the route lane stops live stepping; the kick keeps time during playback.
   Lanes: mute (M, played live instead), solo (S), clear (×); trim start/end
   at the playhead; click a lane to jump. Takes: localStorage
-  `midimap.record.takes.v1`, export/import files. Not yet: overdub.
+  `midimap.record.takes.v1`, export/import files.
 - Round 2 (the author's feedback, 2026-10-03): **take loops**: I / O (and the
   transport loop switch) act on the take while one plays or the sequence tab
   is open (`takeContext()`); `take.loopIn/loopOut` in whole beats, drawn in
@@ -340,6 +365,39 @@ stay frozen (experiment 3 started as a copy of 2).
 - Verified 2026-10-03: 23 checks on real Mapillary with a fake MiniLab;
   playback photo changes as close to the grid as live playing (33 vs 34 ms,
   measured the same way).
+- Round 3, **overdub** (2026-10-04, design agreed with the author):
+  **Shift+Q** (button, MIDI-learnable) overdubs the playing take (or starts
+  it on the next beat); Shift+Q / W stops. `take.od`: a lane is "punched in"
+  (latched until stop; drawn last over the loop shading as a solid red band with a red frame, the line in white, a white playhead, and the lane name white on a red-edged row, after the author found the first version too dim) the moment the live `takeState()` differs
+  from `od.ref` (what playback last put there, read back after
+  `applyTakeState`; muted lanes: the last live value); route ignored while
+  playback is loading a run/panorama (`runBusy`/`svBusy`, then re-applied),
+  `runB` ignored, Street View heading/pitch ±0.5°. `laneOn()` is false for
+  punched lanes. Values are recorded at the take's playhead (photo steps
+  snapped); each loop pass (or a lane click) is a separate segment from loop
+  in. `overdub(take, segs)` in recorder.js replaces the lane's changes in each
+  segment's [a, b) in order (later pass wins) and restores the lane's prior
+  value at b. Forward only (reverse refused); can't lengthen a take.
+  **⌘Z** (button) swaps the take with its pre-overdub copy (again: redo), one
+  level, in memory. The effect sliders now follow playback (`refreshEffects`
+  in `applyTakeState`). 29 checks (`tests/editor/overdub.mjs`).
+- Round 4, **sequencer layout** (2026-10-24, from the author's "very dense,
+  recording hidden behind a tab"; mockup `mockups/sequencer.html`, approved):
+  no tabs under the monitor. The run strip (`#strip`, with a "photo n / N"
+  label drawn in) sits in the transport; the take timeline (`#timeline`) is
+  always visible: take bar (take ▾, rec take Q, overdub ⇧Q, play W, loop,
+  rev, ½/1/2×, "beat n / len"), takes as chips (stopped: click chooses;
+  playing: click launches on the next beat, the playing one stops; MIDI
+  learn per chip as before), a beat ruler and the lanes (m / s only; they
+  scroll inside). **take ▾** (`#take-menu`, opens upwards; Esc or a click
+  elsewhere closes) holds rename, details, trim, undo overdub, clear loop,
+  clear a lane (moved from the lane row), put on pad, export, import,
+  delete. The run facts and "this place" moved to the inspector's **info**
+  tab (effects stays the default). `takeContext()` = a take is playing; then
+  the transport's in / out / loop turn green and act on the take
+  (`markLoopButtons`). The top bar's "rec" is now **video** (V). Tab hover
+  no longer looks selected. 35 checks (`tests/editor/seqlayout.mjs`, at
+  1512×860: 5 lanes visible without scrolling).
 
 ### Cloudflare Worker (`src/worker.js`)
 
@@ -445,10 +503,10 @@ Browsers, testing and tools:
 
 ## Next steps (the author's direction as of 2026-10-03)
 
-See `HANDOFF.md`. In short: **overdub** in experiment 4 (record over a take
-while it plays, replacing only the lanes you touch); then decide with the
-author whether the recorder moves into the editor or another sequencing
-experiment comes first (step sequencer, clip launcher). Later: try the
+See `HANDOFF.md`. In short: overdub in experiment 4 is built (the author
+tries it next; more undo levels only if practice shows the need); then
+decide with the author whether the recorder moves into the editor or another
+sequencing experiment comes first (step sequencer, clip launcher). Later: try the
 external MIDI clock with a real device; place banks; 360° vs flat
 "perspective collisions"; a Mapillary image cache on Cloudflare leading to
 offline performance packs; an offline 4K/ProRes render from takes; sound.

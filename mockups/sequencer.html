@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1512">
+<title>MIDIMap sequencer: mockup</title>
+<style>
+  /* Mockup of experiment 4's sequencer layout (2026-10-04). Drawn over a real
+     screenshot of the page (1512×860); only what would change is redrawn. */
+  :root {
+    --bg: #050505; --panel: #0c0c0c; --panel-2: #121212;
+    --line: #232323; --line-2: #343434;
+    --txt: #e6e1d4; --txt-2: #b8b2a4;
+    --hot: #e8a84c; --live: #ff5a45; --run: #4ade80; --sv: #67e8f9;
+    --mono: "SF Mono", ui-monospace, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--txt); font: 12px/1.45 var(--mono); letter-spacing: .04em; text-transform: lowercase; }
+  body { width: 1512px; height: 860px; position: relative; overflow: hidden; }
+  button, select, input { font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; }
+  button { background: transparent; border: 1px solid var(--line-2); padding: 3px 8px; cursor: pointer; white-space: nowrap; }
+  button:hover, button.on { border-color: var(--hot); color: var(--hot); }
+  input[type=text], select { background: var(--panel); border: 1px solid var(--line-2); padding: 2px 6px; }
+  kbd { font: 10px var(--mono); color: var(--txt-2); border: 1px solid var(--line-2); padding: 0 4px; margin-left: 5px; text-transform: none; }
+  .dim { color: var(--txt-2); }
+  .abs { position: absolute; }
+  #bg { position: absolute; inset: 0; width: 1512px; height: 860px; }
+  .seg { display: inline-flex; }
+  .seg button + button { border-left: none; }
+  .sw { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
+  .sw i { width: 26px; height: 13px; border: 1px solid var(--line-2); position: relative; }
+  .sw i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 7px; height: 7px; background: var(--txt-2); }
+  .sw.on { color: var(--hot); }
+  .sw.on i { border-color: var(--hot); }
+  .sw.on i::after { left: 15px; background: var(--hot); }
+  .sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 4px; }
+
+  /* top bar: "rec" becomes "video", so it isn't confused with recording a take */
+  #video { left: 1307px; top: 9px; height: 29px; width: 88px; background: var(--panel); }
+  #video::before { content: "● "; color: var(--live); }
+
+  /* centre: the transport with the run strip in it, then the take timeline */
+  #centre { left: 360px; top: 494px; width: 792px; height: 246px; background: var(--panel); border-top: 1px solid var(--line); display: flex; flex-direction: column; }
+  .transport { display: flex; align-items: center; gap: 6px; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+  .strip { flex: 1; height: 24px; position: relative; background: #0a0a0a; border: 1px solid var(--line-2); min-width: 120px; }
+  .strip .loop { position: absolute; top: 0; bottom: 0; background: rgba(232,168,76,.16); border-left: 2px solid var(--hot); border-right: 2px solid var(--hot); }
+  .strip .ahead { position: absolute; top: 5px; bottom: 5px; background: var(--run); }
+  .strip .here { position: absolute; top: -1px; bottom: -1px; width: 2px; background: var(--live); }
+  .strip .lbl { position: absolute; left: 6px; top: 3px; font-size: 10px; color: var(--txt-2); }
+  .timeline { flex: 1; display: flex; flex-direction: column; padding: 6px 10px 4px; min-height: 0; }
+  .tbar { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+  .tbar .right { margin-left: auto; color: var(--txt-2); white-space: nowrap; }
+  .tbar .right b { color: var(--txt); font-weight: normal; }
+  #take-menu-btn { border-color: var(--hot); color: var(--hot); min-width: 8.5em; text-align: left; }
+  #rec.on { background: var(--live); border-color: var(--live); color: #000; }
+  #od { border-color: var(--live); color: var(--live); }
+  #od.on { background: var(--live); color: #000; }
+  #od.on kbd, #rec.on kbd { color: #000; border-color: #000; }
+  #play.on { border-color: var(--run); color: var(--run); }
+  .chips { display: flex; gap: 5px; align-items: center; margin-bottom: 5px; }
+  .chip { padding: 1px 8px; }
+  .chip.cur { border-color: var(--hot); color: var(--hot); }
+  .chip.playing { border-color: var(--run); color: var(--run); }
+  .chip.playing::before { content: "▶ "; }
+  .chip.next { border-style: dashed; border-color: var(--run); color: var(--run); }
+  .lanes { flex: 1; overflow: hidden; display: grid; grid-template-columns: 6.6em 3.6em 1fr; gap: 3px 6px; align-content: start; }
+  .lanes .lname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; align-self: center; }
+  .lanes .ms { display: flex; gap: 2px; align-self: center; }
+  .lanes .ms button { padding: 0 5px; font-size: 10px; line-height: 15px; }
+  .lanes .ms button.on { color: var(--hot); border-color: var(--hot); }
+  .lanes canvas { width: 100%; height: 19px; display: block; }
+  .ruler { height: 14px; }
+  .lname.od { color: #fff; font-weight: 700; background: rgba(255,90,69,.14); box-shadow: inset 3px 0 0 var(--live); padding-left: 6px; }
+  .lname.od::before { content: '● '; color: var(--live); }
+  .lname.muted { color: var(--txt-2); text-decoration: line-through; }
+  .empty { color: var(--txt-2); padding: 22px 0; text-align: center; }
+
+  /* take ▾: everything that edits or files a take, out of the way while playing */
+  #take-menu { left: 370px; bottom: 316px; width: 520px; background: var(--panel-2); border: 1px solid var(--hot); box-shadow: 0 10px 40px #000; padding: 10px 12px; z-index: 5; }
+  #take-menu h3, .info h3 { margin: 8px 0 5px; font: 11px var(--mono); letter-spacing: .18em; color: var(--hot); font-weight: normal; }
+  #take-menu h3:first-child { margin-top: 0; }
+  #take-menu .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 4px; }
+  #take-menu ul { list-style: none; padding: 0; margin: 0 0 4px; }
+  #take-menu li { display: flex; justify-content: space-between; padding: 3px 6px; border: 1px solid transparent; cursor: pointer; }
+  #take-menu li:hover, #take-menu li.on { border-color: var(--line-2); }
+  #take-menu li.on { color: var(--hot); }
+  #take-menu .note { color: var(--txt-2); margin: 6px 0 0; }
+
+  /* inspector: a new "info" tab takes what "this run" and "this place" showed */
+  #insp-tabs { left: 1153px; top: 48px; width: 359px; height: 37px; background: var(--panel); display: flex; border-bottom: 1px solid var(--line); padding-left: 1px; }
+  #insp-tabs button { border: none; border-bottom: 2px solid transparent; padding: 9px 9px; }
+  #insp-tabs button.on { border-bottom-color: var(--hot); color: var(--hot); }
+  .info { left: 1153px; top: 85px; width: 359px; height: 655px; background: var(--panel); padding: 8px 12px; overflow: hidden; }
+  .info .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin-bottom: 6px; }
+  .info .facts span { display: block; font-size: 10px; color: var(--txt-2); }
+  .info .wide { grid-column: span 2; }
+  .info .note { color: var(--txt-2); margin: 4px 0; }
+  .info a { color: var(--hot); }
+
+  /* state switching (mockup only) */
+  body:not(.menu) #take-menu, body:not(.info-tab) .info { display: none; }
+  body.none .has-takes { display: none !important; }
+  body:not(.none) .no-takes { display: none !important; }
+
+  #chooser { position: fixed; z-index: 20; bottom: 30px; right: 14px; background: rgba(26, 20, 5, .96); border: 1px solid var(--hot); padding: 6px 10px; box-shadow: 0 6px 30px #000; display: flex; gap: 6px; align-items: center; }
+  #chooser b { color: var(--hot); font-weight: normal; }
+</style>
+</head>
+<body class="playing">
+<img id="bg" src="sequencer-bg.png" alt="">
+
+<button id="video" class="abs" title="record what the output shows to a video file (V)">video <kbd>V</kbd></button>
+
+<div id="insp-tabs" class="abs">
+  <button class="on" data-insp="effects">effects</button><button>camera</button><button>audio</button><button>output</button><button data-insp="info">info</button><button>keys</button>
+</div>
+
+<div class="abs info">
+  <h3>this run</h3>
+  <div class="facts">
+    <div><span>run</span>2026-04-11 · 2196 photos</div>
+    <div><span>here</span>photo 1763 · 52.51788, 13.43415</div>
+    <div><span>heading</span>281° west · 3.4 m to the next</div>
+    <div><span>loop</span>photos 1740 → 1790 · 172 m</div>
+    <div class="wide"><span>other runs within 20 m</span>5: 2021-11-18 … 2026-05-10</div>
+  </div>
+  <h3>this place</h3>
+  <div class="facts">
+    <div class="wide"><span>name</span><input type="text" value="karl-marx-allee, berlin" style="width:100%"></div>
+    <div class="wide"><span>on pad</span><select><option>5 · karl-marx-allee, berlin</option></select> <button>store playing photo here</button></div>
+    <div><span>captured</span>2026-04-11 · 05:44</div>
+    <div><span>photographer</span>osmplus_org · spherical</div>
+    <div><span>licence</span>mapillary · cc by-sa 4.0</div>
+    <div><span>other dates here</span>5 other runs</div>
+  </div>
+  <p class="note">Photo 971392612491710 · <a href="#">open it on mapillary.com</a>. Credit the photographer and Mapillary when you show recordings.</p>
+</div>
+
+<div id="centre" class="abs">
+  <div class="transport">
+    <button>▶ play</button><button>◀</button><button>▶</button>
+    <span class="seg"><button class="on">fwd</button><button>back</button></span>
+    <div class="strip" title="the whole run: click or drag to go anywhere">
+      <div class="loop" style="left:72%;width:12%"></div>
+      <div class="ahead" style="left:80.4%;width:3%"></div>
+      <div class="here" style="left:80.2%"></div>
+      <span class="lbl">photo 1763 / 2196</span>
+    </div>
+    <button title="I">in</button><button title="O">out</button><span class="sw"><i></i>loop</span>
+  </div>
+
+  <div class="timeline">
+    <div class="tbar">
+      <button id="take-menu-btn" class="has-takes">take 3 ▾</button>
+      <button id="rec" title="record a new take (Q)">● rec take<kbd>Q</kbd></button>
+      <button id="od" class="has-takes" title="play over the take: only what you change is replaced (Shift+Q)">overdub<kbd>⇧Q</kbd></button>
+      <button id="play" class="has-takes on">■ stop<kbd>W</kbd></button>
+      <span class="sw on has-takes"><i></i>loop</span>
+      <span class="sw has-takes"><i></i>rev</span>
+      <span class="seg has-takes"><button>½×</button><button class="on">1×</button><button>2×</button></span>
+      <span class="right has-takes">beat <b id="beat">5</b> / 8</span>
+    </div>
+    <div class="chips has-takes">
+      <span class="dim">takes</span>
+      <button class="chip">take 1</button><button class="chip">take 2</button><button class="chip cur playing">take 3</button><button class="chip">drift</button><button class="chip next" title="queued: starts on the next beat">take 5</button>
+    </div>
+    <div class="lanes has-takes" id="lanes"></div>
+    <div class="empty no-takes">no takes yet · <b>Q</b> records one: everything you play (places, photos, looking, effects, live, kick) is kept against the beat</div>
+  </div>
+</div>
+
+<div id="take-menu" class="abs">
+  <h3>take 3</h3>
+  <div class="row"><input type="text" value="take 3" style="width:14em"><span class="dim">8 beats · recorded at 120 bpm, now ×1.00 · 132 changes</span></div>
+  <h3>edit</h3>
+  <div class="row"><button>trim start at playhead</button><button>trim end at playhead</button><button>clear loop</button><button>undo overdub<kbd>⌘Z</kbd></button></div>
+  <div class="row"><span class="dim">clear a lane:</span><button>route</button><button>camera</button><button>blend</button><button>bloom</button><button>hue</button></div>
+  <h3>pads &amp; files</h3>
+  <div class="row"><select><option>pad 1 · times square, new york</option></select><button>put on pad</button><button>export</button><button>import</button><button>delete</button></div>
+  <p class="note">Takes on pads launch with 1–8; any take can go on a MIDI press in learn mode (M).</p>
+</div>
+
+<div id="chooser">
+  <b>mockup</b>
+  <button data-state="playing" class="on">playing a take</button>
+  <button data-state="overdub">overdubbing</button>
+  <button data-state="menu">take ▾ open</button>
+  <button data-state="info-tab">info tab</button>
+  <button data-state="none">no takes yet</button>
+</div>
+
+<script>
+  const LANES = [
+    ['route', (b) => b / 8, 'line', '#4ade80'],
+    ['camera', (b) => (b > 2 && b < 4.5 ? 1 : 0), 'line', '#e8a84c'],
+    ['blend', (b) => 0.5 + 0.4 * Math.sin(b * 1.3), 'line', '#e8a84c'],
+    ['bloom', (b) => (b < 3 ? 0.2 : 0.7), 'line', '#e8a84c'],
+    ['hue', (b) => Math.floor(b / 2) / 4, 'line', '#e8a84c'],
+  ];
+  const beats = 8;
+  let playhead = 4.3;
+  const box = document.querySelector('#lanes');
+  const rows = [];
+  // ruler
+  box.append(Object.assign(document.createElement('span')), Object.assign(document.createElement('span')));
+  const ruler = Object.assign(document.createElement('canvas'), { className: 'ruler' });
+  box.append(ruler);
+  for (const [name, f, , col] of LANES) {
+    const n = Object.assign(document.createElement('span'), { className: 'lname', textContent: name });
+    const ms = document.createElement('span');
+    ms.className = 'ms';
+    ms.innerHTML = '<button title="mute: leave it to you">m</button><button title="solo">s</button>';
+    const c = document.createElement('canvas');
+    box.append(n, ms, c);
+    rows.push({ name, f, col, n, c });
+  }
+  function draw() {
+    const od = document.body.classList.contains('overdub');
+    for (const cv of [ruler, ...rows.map((r) => r.c)]) { cv.width = cv.clientWidth * devicePixelRatio; cv.height = cv.clientHeight * devicePixelRatio; }
+    const dpr = devicePixelRatio;
+    { const g = ruler.getContext('2d'); const w = ruler.width; const h = ruler.height;
+      g.fillStyle = '#b8b2a4'; g.font = `${9 * dpr}px SF Mono, Menlo, monospace`;
+      for (let b = 0; b < beats; b++) { g.fillRect(b / beats * w, h - 4 * dpr, dpr, 4 * dpr); g.fillText(String(b + 1), b / beats * w + 3 * dpr, h - 4 * dpr); }
+      g.fillStyle = '#ff5a45'; g.fillRect(playhead / beats * w - dpr, 0, 2 * dpr, h); }
+    for (const r of rows) {
+      const g = r.c.getContext('2d'); const w = r.c.width; const h = r.c.height;
+      g.fillStyle = '#0a0a0a'; g.fillRect(0, 0, w, h);
+      for (let b = 0; b <= beats; b++) { g.fillStyle = b % 4 ? '#1d1d1d' : '#343434'; g.fillRect(Math.round(b / beats * w), 0, dpr, h); }
+      const isOd = od && r.name === 'blend';
+      const x0 = 2 / beats * w; const wd = (playhead - 2) / beats * w;
+      if (isOd) { g.fillStyle = 'rgba(255,90,69,.85)'; g.fillRect(x0, 0, wd, h); }
+      const line = (ink, lw) => { g.strokeStyle = ink; g.lineWidth = lw * dpr; g.beginPath();
+        for (let x = 0; x <= w; x += 2) { const v = r.f(x / w * beats); const y = h - 3 * dpr - v * (h - 6 * dpr); x ? g.lineTo(x, y) : g.moveTo(x, y); }
+        g.stroke(); };
+      line(r.col, 1.5);
+      if (isOd) {
+        g.save(); g.beginPath(); g.rect(x0, 0, wd, h); g.clip(); line('#ffffff', 2); g.restore();
+        g.fillStyle = '#ff5a45'; g.fillRect(x0, 0, wd, 2 * dpr); g.fillRect(x0, h - 2 * dpr, wd, 2 * dpr); g.fillRect(x0, 0, 2 * dpr, h);
+      }
+      g.fillStyle = od ? '#ffffff' : '#ff5a45'; g.fillRect(playhead / beats * w - dpr, 0, 2 * dpr, h);
+      r.n.className = `lname${isOd ? ' od' : ''}`;
+    }
+  }
+  function setState(s) {
+    document.body.className = s === 'overdub' ? 'playing overdub' : s;
+    document.querySelector('#od').classList.toggle('on', s === 'overdub');
+    document.querySelector('#od').innerHTML = s === 'overdub' ? 'stop overdub<kbd>⇧Q</kbd>' : 'overdub<kbd>⇧Q</kbd>';
+    for (const b of document.querySelectorAll('#insp-tabs button')) b.classList.toggle('on', b.dataset.insp === (s === 'info-tab' ? 'info' : 'effects'));
+    for (const b of document.querySelectorAll('#chooser [data-state]')) b.classList.toggle('on', b.dataset.state === s);
+    draw();
+  }
+  for (const b of document.querySelectorAll('#chooser [data-state]')) b.addEventListener('click', () => setState(b.dataset.state));
+  document.querySelector('#take-menu-btn').addEventListener('click', () => setState(document.body.classList.contains('menu') ? 'playing' : 'menu'));
+  document.querySelector('[data-insp="info"]').addEventListener('click', () => setState('info-tab'));
+  document.querySelector('[data-insp="effects"]').addEventListener('click', () => setState('playing'));
+  const s = new URLSearchParams(location.search).get('state');
+  setState(s || 'playing');
+</script>
+</body>
+</html>

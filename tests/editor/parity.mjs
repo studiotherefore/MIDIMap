@@ -162,10 +162,15 @@ const out = await ctx.newPage();
 await out.goto('http://localhost:8000/editor/?output');
 await out.waitForTimeout(6000);
 await key('ArrowRight'); await key('ArrowRight');
-await out.waitForTimeout(1500);
+// Mapillary is sometimes slow to give the output window its photos: wait up to 20 s
+// (how quickly it follows once loaded is measured in phase2.mjs).
+const tFollow = Date.now();
+await out.waitForFunction(([r, i]) => window.blend?.S.runA?.id === r && window.blend.S.index === i,
+  await ev(() => [window.blend.S.runA?.id, window.blend.S.index]), { timeout: 20000, polling: 100 }).catch(() => {});
+const followS = ((Date.now() - tFollow) / 1000).toFixed(1);
 const o = await out.evaluate(() => ({ index: window.blend.S.index, run: window.blend.S.runA?.id, w: document.querySelector('#view').clientWidth, topbar: getComputedStyle(document.querySelector('.topbar')).display }));
 const c = await ev(() => ({ index: window.blend.S.index, run: window.blend.S.runA?.id }));
-check('output window follows the editor (same run and photo)', o.run === c.run && o.index === c.index, `${o.index} vs ${c.index}`);
+check('output window follows the editor (same run and photo, within 20 s)', o.run === c.run && o.index === c.index, `${o.index} vs ${c.index}, ${followS} s`);
 check('output window: picture only, full width', o.topbar === 'none' && o.w === 1440);
 await out.close();
 
